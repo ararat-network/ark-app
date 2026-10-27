@@ -96,32 +96,38 @@ neither is consensus state.
 
 ## 2. Repository shape
 
-A pnpm workspace, TypeScript throughout, with one native module.
+A pnpm workspace, TypeScript throughout, with one native module. Each workspace is a top-level directory named by its
+role, as in `ark`, with its own README. The workspace list is written out in `pnpm-workspace.yaml`, so adding one is a
+deliberate line.
 
 ```text
-apps/app                     the Expo app: iOS, Android, and web from one codebase
-apps/web                     only once the desktop experience diverges from the phone's; absent until then
-packages/signer              the signer package (§3)
-packages/ui                  the screens and the decoded-message rendering every client shares
-packages/i18n                the string resources, locale formatting, and the translation check
-packages/membership-client   the membership service's API schema snapshot and the client generated from it, committed
+app/                 the Expo app: iOS, Android, and web from one codebase
+signer/              the signer package (§3)
+ui/                  the screens and the decoded-message rendering every client shares
+i18n/                the string resources, locale formatting, and the translation check
+membership-client/   the membership service's API schema snapshot and the client generated from it, committed
+docs/                this design
 ```
 
-| Package                      | Responsibility                                                                                                                                  | Must not become                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `apps/app`                   | The features: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network        | A holder of key material; a place where chain policy is computed                            |
-| `apps/web`                   | The desktop client, once the phone's layout stops serving it; signs by handoff or Ledger                                                       | A client with a key of its own                                                              |
-| `packages/signer`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, and the adapters ([§3](#3-the-signer-package))                 | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
-| `packages/ui`                | The screens and components each feature composes, and the one decoded-message rendering every review uses                                       | A holder of keys, sessions, or chain reads of its own                                       |
-| `packages/i18n`              | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string           | A second reading of a transaction: a translation renders the same decoded fields            |
-| `packages/membership-client` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
+`web/` appears only once the desktop experience diverges from the phone's; until then the Expo app serves the web.
+Expo Router keeps its routes in a directory named `app`, so the Expo workspace keeps them at `app/src/app/`, the `src`
+form the router accepts, and keeps the name the direction uses.
+
+| Workspace            | Responsibility                                                                                                                                  | Must not become                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `app/`               | The features: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network        | A holder of key material; a place where chain policy is computed                            |
+| `web/`               | The desktop client, once the phone's layout stops serving it; signs by handoff or Ledger                                                       | A client with a key of its own                                                              |
+| `signer/`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, and the adapters ([§3](#3-the-signer-package))                 | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
+| `ui/`                | The screens and components each feature composes, and the one decoded-message rendering every review uses                                       | A holder of keys, sessions, or chain reads of its own                                       |
+| `i18n/`              | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string           | A second reading of a transaction: a translation renders the same decoded fields            |
+| `membership-client/` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
 
 `@ararat-network/sdk` is a dependency, pinned by git tag until it is published. It owns encoding, queries, transaction
 building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the app adds no second implementation of any
 of them.
 
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
-the code they test. CI type-checks, lints, and tests every package, checks that the committed membership client
+the code they test. CI type-checks, lints, and tests every workspace, checks that the committed membership client
 regenerates from the committed schema snapshot, and checks the SDK pin; it holds no credential, so whether the snapshot
 is current is the refreshing builder's check, not CI's. The keystore is an Expo module in Swift and Kotlin, the one
 native code in the tree, so the key never enters JavaScript.
@@ -348,7 +354,7 @@ a stored secret, a transport, or a release step updates this section in the same
 
 | Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| The framework                     | Expo; native apps with a shared signer core in Rust or Kotlin Multiplatform ([§2](#2-repository-shape))                      | Expo                                                                                                                | The scaffold and every package                                            |
+| The framework                     | Expo; native apps with a shared signer core in Rust or Kotlin Multiplatform ([§2](#2-repository-shape))                      | Expo                                                                                                                | The scaffold and every workspace                                          |
 | Backup and recovery               | A cloud keychain blob under a recovery secret; a mnemonic; both ([§3.6](#36-backup-and-recovery))                            | Both: the blob at signup, the mnemonic before the first stake                                                       | The keystore and signup                                                   |
 | The languages of the first release | Every language of the starting assets; the first cohort's languages, the rest as translations arrive                          | The first cohort's, with English complete and the pipeline proving a language is a resource                         | The string freeze before release; nothing in code                         |
 | The relay's home (later)          | A service in this repository; its own repository; part of the membership service                                              | Its own small service, holding unsigned bytes and signatures and never a key; decided when multisignature is built  | Multisignature signing and handoff over a network; nothing in the first tranche |
