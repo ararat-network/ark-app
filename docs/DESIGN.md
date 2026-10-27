@@ -104,7 +104,7 @@ apps/web                     only once the desktop experience diverges from the 
 packages/signer              the signer package (§3)
 packages/ui                  the screens and the decoded-message rendering every client shares
 packages/i18n                the string resources, locale formatting, and the translation check
-packages/membership-client   the generated client for the membership service's API, committed
+packages/membership-client   the membership service's API schema snapshot and the client generated from it, committed
 ```
 
 | Package                      | Responsibility                                                                                                                                  | Must not become                                                                             |
@@ -114,16 +114,17 @@ packages/membership-client   the generated client for the membership service's A
 | `packages/signer`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, and the adapters ([§3](#3-the-signer-package))                 | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
 | `packages/ui`                | The screens and components each feature composes, and the one decoded-message rendering every review uses                                       | A holder of keys, sessions, or chain reads of its own                                       |
 | `packages/i18n`              | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string           | A second reading of a transaction: a translation renders the same decoded fields            |
-| `packages/membership-client` | The client generated from the membership service's API schema, read in the private repository and committed, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
+| `packages/membership-client` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
 
 `@ararat-network/sdk` is a dependency, pinned by git tag until it is published. It owns encoding, queries, transaction
 building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the app adds no second implementation of any
 of them.
 
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
-the code they test. CI type-checks, lints, and tests every package, checks that the committed membership client matches
-its schema, and checks the SDK pin. The keystore is an Expo module in Swift and Kotlin, the one native code in the tree,
-so the key never enters JavaScript.
+the code they test. CI type-checks, lints, and tests every package, checks that the committed membership client
+regenerates from the committed schema snapshot, and checks the SDK pin; it holds no credential, so whether the snapshot
+is current is the refreshing builder's check, not CI's. The keystore is an Expo module in Swift and Kotlin, the one
+native code in the tree, so the key never enters JavaScript.
 
 **The alternative.** Native apps in Swift and Kotlin plus a web client, sharing a signer core in Rust, through UniFFI
 on the phones and WebAssembly on the web, or in Kotlin Multiplatform. Its gain: the key and the signing never meet a
@@ -362,10 +363,10 @@ Aligned with the direction's first two steps. Each step names what done looks li
    Android; consent and review on decoded messages; fee selection and broadcast; the sign-arbitrary call; the Ledger
    adapter. Done: the signup vectors and the decoding fixtures pass, the emulator suite signs through the adapter, and a
    localnet transaction signs from a device key and from a Ledger.
-2. **Signup.** The membership client generated and committed; sign-in with Apple and Google; device attestation; the
-   phone number; the vouch flow for an existing member; the challenge signed and submitted. Done: the tracks meet, a
-   member registers through the membership service from a device key and from a Ledger, and the chain lists the
-   address.
+2. **Signup.** The schema snapshot and the membership client generated from it, committed; sign-in with Apple and
+   Google; device attestation; the phone number; the vouch flow for an existing member; the challenge signed and
+   submitted. Done: the tracks meet, a member registers through the membership service from a device key and from a
+   Ledger, and the chain lists the address.
 3. **Grant view and distribution screen.** Done: a registered member sees their grant, status, schedule, and the hold's
    end, and anyone sees the distribution without an account, each figure at a height.
 4. **Staking and voting.** The validator picker; each payment delegated; every open proposal voted; gas from the tenth.
