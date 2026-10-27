@@ -1,0 +1,4 @@
+# The signer package and the repository's automation change only on their owners' review; the review gate ruleset
+# requires it. Everything else needs the ordinary approval.
+/packages/signer/ @chitpole
+/.github/         @chitpole
