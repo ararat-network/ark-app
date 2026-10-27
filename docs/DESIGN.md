@@ -19,8 +19,8 @@ direction rather than restating it.
 ## 1. What the app is
 
 One app, mobile first. The phone is where the key lives and where everything a member does is signed. A web client
-follows, for a screen larger than a phone's, and signs through the member's phone or a Ledger device, never through a
-key in the browser ([§3.5](#35-keystore-per-platform)). The direction's
+follows, its own app for a screen larger than a phone's and for the pages anyone reads, and signs through the member's
+phone or a Ledger device, never through a key in the browser ([§3.5](#35-keystore-per-platform)). The direction's
 [`ark-app` section](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-app) fixes
 its purpose: a first-party app that holds the wallet and everything a member does, and grows past both.
 
@@ -70,9 +70,9 @@ when each comes.
 
 ### Explorer pages
 
-The app's explorer pages read the indexer and need no account: each transaction decoded, the distribution, and the
-network, as the direction lists them. They come with the indexer. The app is their front, the indexer their data, and
-neither is consensus state.
+The web client's explorer pages read the indexer and need no account: each transaction decoded, the distribution, and
+the network, as the direction lists them. They come with the indexer. The web client is their front, the indexer their
+data, and neither is consensus state.
 
 ### Reading the chain
 
@@ -101,24 +101,24 @@ role, as in `ark`, with its own README. The workspace list is written out in `pn
 deliberate line.
 
 ```text
-app/                 the Expo app: iOS, Android, and web from one codebase
-signer/              the signer package (§3)
-ui/                  the screens and the decoded-message rendering every client shares
+app/                 the React Native app: iOS and Android
+web/                 the web client: a React app built to static files, signing by handoff or a Ledger
+signer/              the signer package, its native keystore inside it (§3)
 i18n/                the string resources, locale formatting, and the translation check
 membership-client/   the membership service's API schema snapshot and the client generated from it, committed
 docs/                this design
 ```
 
-`web/` appears only once the desktop experience diverges from the phone's; until then the Expo app serves the web.
-Expo Router keeps its routes in a directory named `app`, so the Expo workspace keeps them at `app/src/app/`, the `src`
-form the router accepts, and keeps the name the direction uses.
+The two clients share no components: the phone renders React Native views and the web renders the DOM, and what they
+must share, the decoded transaction as a model to render, is the signer's review step ([§3.2](#32-the-core)). Expo
+Router keeps its routes in a directory named `app`, so the phone app keeps them at `app/src/app/`, the `src` form the
+router accepts, and keeps the name the direction uses.
 
 | Workspace            | Responsibility                                                                                                                                  | Must not become                                                                             |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `app/`               | The features: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network        | A holder of key material; a place where chain policy is computed                            |
-| `web/`               | The desktop client, once the phone's layout stops serving it; signs by handoff or Ledger                                                       | A client with a key of its own                                                              |
-| `signer/`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, and the adapters ([§3](#3-the-signer-package))                 | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
-| `ui/`                | The screens and components each feature composes, and the one decoded-message rendering every review uses                                       | A holder of keys, sessions, or chain reads of its own                                       |
+| `app/`               | The phone features: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network; its native projects generated at build time, never committed | A holder of key material; a place where chain policy is computed                            |
+| `web/`               | The distribution screen and the explorer pages for anyone, and the grant view, staking, and voting for a member, signing by handoff or a Ledger; a static build from a tag | A client with a key of its own; the first home of a member feature, which is the phone's    |
+| `signer/`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, the handoff protocol, and the adapters, with the keystore's Swift and Kotlin inside it ([§3](#3-the-signer-package)) | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
 | `i18n/`              | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string           | A second reading of a transaction: a translation renders the same decoded fields            |
 | `membership-client/` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
 
@@ -129,16 +129,18 @@ of them.
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
 the code they test. CI type-checks, lints, and tests every workspace, checks that the committed membership client
 regenerates from the committed schema snapshot, and checks the SDK pin; it holds no credential, so whether the snapshot
-is current is the refreshing builder's check, not CI's. The keystore is an Expo module in Swift and Kotlin, the one
-native code in the tree, so the key never enters JavaScript.
+is current is the refreshing builder's check, not CI's. The phone app is React Native through Expo: the Expo Modules
+API gives the keystore its typed bridge, and continuous native generation produces the Xcode and Gradle projects at
+build time from the app's config, so the one native code in the tree is the keystore's Swift and Kotlin, and the key
+never enters JavaScript. The native surface beyond the keystore, the biometric prompt, the Ledger Bluetooth transport,
+device attestation, and the Apple and Google sign-in, comes from pinned modules and holds no key.
 
-**The alternative.** Native apps in Swift and Kotlin plus a web client, sharing a signer core in Rust, through UniFFI
-on the phones and WebAssembly on the web, or in Kotlin Multiplatform. Its gain: the key and the signing never meet a
-JavaScript bridge, the supply chain is smaller, and there is no React Native release cadence to follow. Its cost: three
-user interfaces, so the screens, the decoded rendering, and the strings are written three times or bridged; bindings per
-platform for the core; three review surfaces for the one-meaning rule; and a smaller pool of contributors. Expo keeps
-one codebase and puts the native boundary where it matters, around the key. The framework is a decision
-([§5](#5-decisions)), with Expo recommended.
+**The alternative.** Native apps in Swift and Kotlin sharing a signer core in Rust, through UniFFI on the phones and
+WebAssembly on the web, or in Kotlin Multiplatform, would keep the key and the signing off a JavaScript bridge, with a
+smaller supply chain and no React Native release cadence to follow. It would cost two native user interfaces beside the
+web's, so the screens and the strings written three times; bindings per platform for the core; three review surfaces
+for the one-meaning rule; and a smaller pool of contributors. The design takes React Native and draws the native
+boundary around the key; which React Native tooling is the decision left ([§5](#5-decisions)).
 
 ## 3. The signer package
 
@@ -168,7 +170,10 @@ Shared by every client and every adapter, as a pipeline:
 5. **Broadcast.** Sync, then wait for inclusion. The outcome keeps its class: an ante refusal, an execution failure, a
    module error, a timeout with the hash still pending, or a node that could not be reached. None is summarised away.
 
-Every step is TypeScript, shared by the phone and the web.
+Every step is TypeScript, shared by the phone and the web. Review produces a model, the decoded fields with their
+labels and amounts, which each client renders with its own components, so the two clients share one reading and no
+components. The handoff protocol of [§3.5](#35-keystore-per-platform) is the core's too, since both ends of it must
+share one implementation.
 
 ### 3.3 The sign-arbitrary call
 
@@ -184,6 +189,17 @@ phishing tool.
 ### 3.4 Adapters
 
 Two adapters in the first tranche. Both implement the same interface, and the features never know which one signed.
+
+The package is a TypeScript core with one subpath export per adapter, so a client imports what it has: the phone the
+keystore and the Ledger adapter over Bluetooth, the web the handoff and the Ledger adapter over WebUSB, and never the
+keystore, so nothing native reaches a browser build.
+
+```text
+signer/
+  src/        the core: consent, review, fees, broadcast, the sign-arbitrary call, the handoff protocol
+  keystore/   the device keystore adapter: its TypeScript entry, and ios/ and android/ for the native module
+  ledger/     the Ledger adapter over an injected transport: Bluetooth on the phone, WebUSB or WebHID on the web
+```
 
 **Device keystore.** The default, [§3.5](#35-keystore-per-platform).
 
@@ -260,10 +276,10 @@ the same capabilities are granted per dapp origin: the model does not change, on
 
 ### 3.8 Ownership and tests
 
-The package has its own CODEOWNERS and its own tests: the signup protocol's vectors, byte-equal sign bytes and
-signatures; the decoding fixtures, for review; the keystore's wrap, unwrap, and zeroisation on both platforms; the
-Ledger adapter against ledger-ark's emulator suite; and the handoff round trip. It changes slowly and on its owners'
-review.
+The package, its native module included, has its own CODEOWNERS and its own tests: the signup protocol's vectors,
+byte-equal sign bytes and signatures; the decoding fixtures, for review; the keystore's wrap, unwrap, and zeroisation
+on both platforms; the Ledger adapter against ledger-ark's emulator suite; and the handoff round trip. It changes
+slowly and on its owners' review.
 
 It leaves the repository when something outside it needs it: a browser extension, a third-party wallet, the wallet kit's
 dapp protocol, or an audit that wants a frozen tag. Until then it is a package, and the app and the signer move in one
@@ -333,9 +349,10 @@ which the member reads on the device; the app's review and the device's are the 
 ### Dependency pinning
 
 Exact versions, a frozen lockfile in CI, dependency install scripts blocked by pnpm, Dependabot, and every CI action
-pinned by commit SHA. The signer's runtime dependencies are listed in its README and kept to: the SDK, with noble and
-scure through it; `@bufbuild/protobuf`; ledger-ark's JS package and the Ledger transport packages; and libsecp256k1 at
-a pinned release, built from source in the native module. A bump to any of them is reviewed by the signer's owners.
+pinned by commit SHA. The Expo SDK is pinned like any other dependency, since the generated native projects are only as
+fixed as it is. The signer's runtime dependencies are listed in its README and kept to: the SDK, with noble and scure
+through it; `@bufbuild/protobuf`; ledger-ark's JS package and the Ledger transport packages; and libsecp256k1 at a
+pinned release, built from source in the native module. A bump to any of them is reviewed by the signer's owners.
 
 ### Inputs
 
@@ -354,7 +371,7 @@ a stored secret, a transport, or a release step updates this section in the same
 
 | Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| The framework                     | Expo; native apps with a shared signer core in Rust or Kotlin Multiplatform ([§2](#2-repository-shape))                      | Expo                                                                                                                | The scaffold and every workspace                                          |
+| React Native tooling              | React Native is settled ([§2](#2-repository-shape)); Expo's module API with generated native projects, or bare React Native with committed projects and a Turbo Module | Expo's module API and generated projects                                                                            | The scaffold                                                              |
 | Backup and recovery               | A cloud keychain blob under a recovery secret; a mnemonic; both ([§3.6](#36-backup-and-recovery))                            | Both: the blob at signup, the mnemonic before the first stake                                                       | The keystore and signup                                                   |
 | The languages of the first release | Every language of the starting assets; the first cohort's languages, the rest as translations arrive                          | The first cohort's, with English complete and the pipeline proving a language is a resource                         | The string freeze before release; nothing in code                         |
 | The relay's home (later)          | A service in this repository; its own repository; part of the membership service                                              | Its own small service, holding unsigned bytes and signatures and never a key; decided when multisignature is built  | Multisignature signing and handoff over a network; nothing in the first tranche |
@@ -383,4 +400,5 @@ Aligned with the direction's first two steps. Each step names what done looks li
    the tenth, stake and vote it, from a device key and from a Ledger.
 
 Backup and the string resources are not steps: option A ships with the keystore in step 1, option B with step 3, and
-every string is a resource from step 1.
+every string is a resource from step 1. The web client is not a step of the first tranche: its directory exists from
+the first commit, and it ships after the phone, on the handoff and the Ledger adapter the signer already has.
