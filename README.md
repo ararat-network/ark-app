@@ -22,7 +22,7 @@ role, as in `ark`, with its own README. `pnpm-workspace.yaml` lists them, so add
 | `web/` | The web client, a React app built to static files from a tag: the distribution screen and the explorer pages for anyone, and the grant view, staking, and voting for a member, signing by handoff or a Ledger | A client with a key of its own; the first home of a member feature, which is the phone's |
 | `signer/` | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, the handoff protocol, and the adapters, with the keystore's Swift and Kotlin inside it ([design §3](DESIGN.md#3-the-signer-package)) | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
 | `i18n/` | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string | A second reading of a transaction: a translation renders the same decoded fields |
-| `membership-client/` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's |
+| `backend-client/` | A snapshot of the backend's API schemas, the membership service's first, and the client generated from them, both committed; a builder with access to the private `ark-backend` refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's |
 
 `.github/` holds the automation. It and `signer/` change only on their owners' review
 ([CODEOWNERS](.github/CODEOWNERS)).
