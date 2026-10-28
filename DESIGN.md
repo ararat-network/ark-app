@@ -110,7 +110,7 @@ building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the a
 of them.
 
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
-the code they test. CI type-checks, lints, and tests every workspace, checks that the committed membership client
+the code they test. CI type-checks, lints, and tests every workspace, checks that the committed backend client
 regenerates from the committed schema snapshot, and checks the SDK pin; it holds no credential, so whether the snapshot
 is current is the refreshing builder's check, not CI's. The phone app is React Native through Expo: the Expo Modules
 API gives the keystore its typed bridge, and continuous native generation produces the Xcode and Gradle projects at
@@ -196,7 +196,7 @@ data as base64
 devices are those a member can sideload until Ledger lists the app
 ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a device without
 Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature signing, the relay,
-and external-wallet adapters come later ([§5](#5-decisions)).
+and external-wallet adapters come later.
 
 ### 3.5 Keystore per platform
 
@@ -222,7 +222,8 @@ the phishing surface. The web client builds and reviews the transaction, then si
 - **Handoff.** The sign document goes to the phone as a QR code, the phone's signer reviews and signs it, and the
   signature comes back the same way. The phone shows the document before it signs, so the review that matters happens
   on the device that holds the key, and no server sees the request. The relay that carries multisig partial signatures
-  ([§5](#5-decisions)) can carry handoffs once it exists.
+  ([`ark-backend`](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-backend))
+  can carry handoffs once it exists.
 - **Ledger.** Over WebUSB or WebHID, through the same adapter as the phone's.
 
 ### 3.6 Backup and recovery
@@ -357,7 +358,6 @@ a stored secret, a transport, or a release step updates this section in the same
 | React Native tooling              | React Native is settled ([§2](#2-repository-shape)); Expo's module API with generated native projects, or bare React Native with committed projects and a Turbo Module | Expo's module API and generated projects                                                                            | The scaffold                                                              |
 | Backup and recovery               | A cloud keychain blob under a recovery secret; a mnemonic; both ([§3.6](#36-backup-and-recovery))                            | Both: the blob at signup, the mnemonic before the first stake                                                       | The keystore and signup                                                   |
 | The languages of the first release | Every language of the starting assets; the first cohort's languages, the rest as translations arrive                          | The first cohort's, with English complete and the pipeline proving a language is a resource                         | The string freeze before release; nothing in code                         |
-| The relay's home (later)          | A service in this repository; its own repository; part of the membership service                                              | Its own small service, holding unsigned bytes and signatures and never a key; decided when multisignature is built  | Multisignature signing and handoff over a network; nothing in the first tranche |
 
 The membership service's KMS provider is the service's decision, not the app's, and is not recorded here.
 
@@ -369,7 +369,7 @@ Aligned with the direction's first two steps. Each step names what done looks li
    Android; consent and review on decoded messages; fee selection and broadcast; the sign-arbitrary call; the Ledger
    adapter. Done: the signup vectors and the decoding fixtures pass, the emulator suite signs through the adapter, and a
    localnet transaction signs from a device key and from a Ledger.
-2. **Signup.** The schema snapshot and the membership client generated from it, committed; sign-in with Apple and
+2. **Signup.** The schema snapshot and the backend client generated from it, committed; sign-in with Apple and
    Google; device attestation; the phone number; the vouch flow for an existing member; the challenge signed and
    submitted. Done: the tracks meet, a member registers through the membership service from a device key and from a
    Ledger, and the chain lists the address.
