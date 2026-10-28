@@ -2,7 +2,8 @@
 
 For the app's contributors, the signer package's reviewers, and the membership service's builders, who meet the app at
 its API. This document is the design the first commit follows: nothing in the repository is built, and every section
-describes what will be, not what is. The
+describes what will be, not what is. It is temporary: as each workspace is built, its part moves into that workspace's
+README, and the file is deleted once nothing is left in it. The
 [tooling direction](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) owns what the
 app is for and where it sits among Ark's repositories; this document owns how the app is built, and links to the
 direction rather than restating it.
@@ -96,31 +97,13 @@ data, and neither is consensus state.
 
 ## 2. Repository shape
 
-A pnpm workspace, TypeScript throughout, with one native module. Each workspace is a top-level directory named by its
-role, as in `ark`, with its own README. The workspace list is written out in `pnpm-workspace.yaml`, so adding one is a
-deliberate line.
-
-```text
-app/                 the React Native app: iOS and Android
-web/                 the web client: a React app built to static files, signing by handoff or a Ledger
-signer/              the signer package, its native keystore inside it (§3)
-i18n/                the string resources, locale formatting, and the translation check
-membership-client/   the membership service's API schema snapshot and the client generated from it, committed
-docs/                this design
-```
+The [README's layout](README.md#layout) names the workspaces, what each is responsible for, and what each must not
+become.
 
 The two clients share no components: the phone renders React Native views and the web renders the DOM, and what they
 must share, the decoded transaction as a model to render, is the signer's review step ([§3.2](#32-the-core)). Expo
 Router keeps its routes in a directory named `app`, so the phone app keeps them at `app/src/app/`, the `src` form the
 router accepts, and keeps the name the direction uses.
-
-| Workspace            | Responsibility                                                                                                                                  | Must not become                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `app/`               | The phone features: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network; its native projects generated at build time, never committed | A holder of key material; a place where chain policy is computed                            |
-| `web/`               | The distribution screen and the explorer pages for anyone, and the grant view, staking, and voting for a member, signing by handoff or a Ledger; a static build from a tag | A client with a key of its own; the first home of a member feature, which is the phone's    |
-| `signer/`            | Key custody, consent, review, fee selection, broadcast, the sign-arbitrary call, the handoff protocol, and the adapters, with the keystore's Swift and Kotlin inside it ([§3](#3-the-signer-package)) | A key store a feature reaches around; an Ark policy engine; the authority for balances or outcomes |
-| `i18n/`              | The string resources, the locale formatting of amounts, dates, and currencies, and the check that every language carries every string           | A second reading of a transaction: a translation renders the same decoded fields            |
-| `membership-client/` | A snapshot of the membership service's API schema and the client generated from it, both committed; a builder with access to the private repository refreshes the snapshot, so no public build needs a credential | Hand-written API code; session logic, which is the app's                                    |
 
 `@ararat-network/sdk` is a dependency, pinned by git tag until it is published. It owns encoding, queries, transaction
 building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the app adds no second implementation of any
