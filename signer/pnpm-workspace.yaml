@@ -2,5 +2,8 @@
 # package ships the binary tsx runs, so its script stays blocked.
 allowBuilds:
   esbuild: false
+
+# pnpm refuses a version published too recently. The SDK is first-party and is
+# pinned here the day it is released, so the pinned version alone is excluded.
 minimumReleaseAgeExclude:
-  - '@ararat-network/sdk@0.1.2'
+  - '@ararat-network/sdk@0.2.0'
