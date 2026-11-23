@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       '@ararat-network/sdk':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.2.0
+        version: 0.2.0
     devDependencies:
       '@biomejs/biome':
         specifier: 2.6.8
@@ -185,8 +185,8 @@ importers:
 
 packages:
 
-  '@ararat-network/sdk@0.1.2':
-    resolution: {integrity: sha512-T0LhpuinTotZrtFQaG/fHN/HOFJpBmkhduTvtyDfg+l7as7KgH/6ZVfHOV2JXyeB/PK3RlkSXHshK2Y24RzcLA==}
+  '@ararat-network/sdk@0.2.0':
+    resolution: {integrity: sha512-yQ2gFOaF3Wlr7j6aQXyX6US0WXCboi8xH7haezVDaMvurdNwkleVpIX6Oht8hnmC0dCO+wdP7gsVK4MeV3Xn+g==}
     engines: {node: '>=22'}
 
   '@biomejs/biome@2.6.8':
@@ -582,7 +582,7 @@ packages:
 
 snapshots:
 
-  '@ararat-network/sdk@0.1.2':
+  '@ararat-network/sdk@0.2.0':
     dependencies:
       '@bufbuild/protobuf': 2.17.0
       '@noble/curves': 2.4.0
