@@ -8,16 +8,18 @@ the app, and every feature asks it for a signature without ever seeing a key. Th
 [tooling direction](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-app) says
 what the app is for and where it sits among Ark's repositories.
 
-The first workspace exists: [`signer/`](signer/README.md), with the signup protocol's documents and their proof.
+The first package exists: [`signer/`](signer/README.md), with the signup protocol's documents and their proof.
 Nothing else is built yet. [DESIGN.md](DESIGN.md) is the design the rest follows, and it is temporary: as each
-workspace is built, its part of the design moves into that workspace's README.
+package is built, its part of the design moves into that package's README.
 
 ## Layout
 
-A pnpm workspace, TypeScript throughout, with one native module. Each workspace is a top-level directory named by its
-role, as in `ark`, with its own README. `pnpm-workspace.yaml` lists them, so adding one is a deliberate line.
+TypeScript throughout, with one native module. Each package is a top-level directory named by its role, as in `ark`,
+and holds everything it is: its own README, licence, manifest, lockfile, and tooling configuration. There is no package
+at the root and no shared lockfile, so a directory lifts out as a repository of its own without a change, and what two
+packages both need is configured in each. A package that uses another depends on it by path.
 
-| Workspace | Responsibility | Must not become |
+| Package | Responsibility | Must not become |
 | --- | --- | --- |
 | `app/` | The React Native app for iOS and Android: signup, the grant view, the distribution screen, staking, voting, send; navigation, sessions, and configuration per network; its native projects generated at build time, never committed | A holder of key material; a place where chain policy is computed |
 | `web/` | The web client, a React app built to static files from a tag: the distribution screen and the explorer pages for anyone, and the grant view, staking, and voting for a member, signing by handoff or a Ledger | A client with a key of its own; the first home of a member feature, which is the phone's |
@@ -30,14 +32,6 @@ role, as in `ark`, with its own README. `pnpm-workspace.yaml` lists them, so add
 
 ## Development
 
-pnpm through corepack, on Node 22 or later. Dependency install scripts are blocked and every version is exact.
-
-```sh
-pnpm install
-pnpm lint
-pnpm -r run check
-pnpm -r run test
-```
-
-`pnpm lint` checks the whole repository with Biome; `check` and `test` run each workspace's type check and its tests,
-which sit beside the code they test.
+Each package is developed from its own directory with pnpm through corepack, on Node 22 or later; its README has the
+commands. Dependency install scripts are blocked and every version is exact. `.github/` holds one workflow per package,
+which runs only when that package changes.
