@@ -57,7 +57,7 @@ pnpm check
 pnpm test
 ```
 
-The package stands alone: its manifest, lockfile, licence, and tooling configuration are all here, and nothing at the
-repository root is needed to build or test it.
+The package stands alone: its manifest, lockfile, and tooling configuration are all here, and nothing at the
+repository root is needed to build or test it. The repository's [LICENSE](../LICENSE) covers it.
 
 The tests run on `node:test` through `tsx`. The package exports its TypeScript source, so there is no build step.

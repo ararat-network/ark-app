@@ -15,9 +15,10 @@ package is built, its part of the design moves into that package's README.
 ## Layout
 
 TypeScript throughout, with one native module. Each package is a top-level directory named by its role, as in `ark`,
-and holds everything it is: its own README, licence, manifest, lockfile, and tooling configuration. There is no package
-at the root and no shared lockfile, so a directory lifts out as a repository of its own without a change, and what two
-packages both need is configured in each. A package that uses another depends on it by path.
+and holds everything it is: its own README, manifest, lockfile, and tooling configuration. There is no package at the
+root and no shared lockfile, so a directory lifts out as a repository of its own with nothing added but the licence,
+and what two packages both need is configured in each. A package that uses another depends on it by path. The one
+[LICENSE](LICENSE) at the root covers every package.
 
 | Package | Responsibility | Must not become |
 | --- | --- | --- |
