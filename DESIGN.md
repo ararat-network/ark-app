@@ -106,8 +106,9 @@ Router keeps its routes in a directory named `app`, so the phone app keeps them 
 router accepts, and keeps the name the direction uses.
 
 `@ararat-network/sdk` is a dependency, pinned at an exact version from npm. It owns encoding, queries, transaction
-building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the app adds no second implementation of any
-of them.
+building, fees, broadcast, decoding, and formatting; the app adds no second implementation of any of them. The signup
+protocol is not the SDK's: its documents, their ADR-036 sign bytes, and its vectors are the signer's
+([signer/README.md](signer/README.md)).
 
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
 the code they test. CI type-checks, lints, and tests every package, checks that the committed backend client
@@ -129,9 +130,11 @@ boundary around the key; which React Native tooling is the decision left ([§5](
 
 ### 3.1 Interface
 
-The package implements the SDK's `Signer`: `accounts`, `signDirect`, `signAmino`, and `signArbitrary`. The SDK builds
-every document, the signer signs it, and nothing else sees the key. Feature code reaches the signer through the
-capabilities of [§3.7](#37-permissions), never through an adapter.
+The package implements the SDK's `Signer`: `accounts`, `signDirect`, and `signAmino`. It adds `signArbitrary`, a call
+of its own for the signup protocol's documents ([§3.3](#33-the-sign-arbitrary-call)), which the SDK's interface does
+not have. The SDK builds every transaction document and the signer builds the ADR-036 sign bytes; the signer signs
+both, and nothing else sees the key. Feature code reaches the signer through the capabilities of
+[§3.7](#37-permissions), never through an adapter.
 
 ### 3.2 The core
 
