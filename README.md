@@ -34,5 +34,8 @@ and what two packages both need is configured in each. A package that uses anoth
 ## Development
 
 Each package is developed from its own directory with pnpm through corepack, on Node 22 or later; its README has the
-commands. Dependency install scripts are blocked and every version is exact. `.github/` holds one workflow per package,
-which runs only when that package changes.
+commands. Dependency install scripts are blocked and every version is exact.
+
+One workflow, [ci.yml](.github/workflows/ci.yml), serves every package: it runs a package's jobs only when that
+package or the automation changed, and its last job, `ci`, is the one check a pull request must pass. A change to the
+files at the root alone runs no package's jobs.
