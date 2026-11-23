@@ -2,9 +2,9 @@
 
 For the Ark app and SDK, the membership service, and security reviewers. Signup is completed in the Ark app and nowhere
 else: the protocol is published so that the app's producer, the membership service's verifier, and a reviewer of either
-work from one contract, not so that another client can implement it. The test vectors, in `ark-sdk` at
-[testdata/signup/vectors.json](https://github.com/ararat-network/ark-sdk/blob/main/testdata/signup/vectors.json),
-are part of this specification: a producer must reproduce their bytes and a verifier must return their refusals.
+work from one contract, not so that another client can implement it. The test vectors in
+[testdata/signup/vectors.json](../testdata/signup/vectors.json) are part of this specification: a producer must
+reproduce their bytes and a verifier must return their refusals.
 
 ## Contents
 
@@ -175,8 +175,8 @@ documents and a clock; rules 10 to 13 need the admission store and a node.
 
 ## 9. Test vectors
 
-[testdata/signup/vectors.json](https://github.com/ararat-network/ark-sdk/blob/main/testdata/signup/vectors.json)
-in `ark-sdk` holds three test keys and the vectors. The keys are test fixtures: never fund them.
+[testdata/signup/vectors.json](../testdata/signup/vectors.json) holds three test keys and the vectors. The keys are
+test fixtures: never fund them.
 
 Each vector gives `prefix`, `domain`, the document the platform issued as `challenge` (or `null` when it issued none),
 `now`, and the four submission values plus `sign_bytes`, the exact ADR-036 sign bytes. Two results are stated:

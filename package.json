@@ -1,0 +1,19 @@
+{
+  "name": "ark-app",
+  "private": true,
+  "description": "The Ark app's workspaces",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6"
+  }
+}
