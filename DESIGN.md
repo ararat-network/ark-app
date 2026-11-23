@@ -105,7 +105,7 @@ must share, the decoded transaction as a model to render, is the signer's review
 Router keeps its routes in a directory named `app`, so the phone app keeps them at `app/src/app/`, the `src` form the
 router accepts, and keeps the name the direction uses.
 
-`@ararat-network/sdk` is a dependency, pinned by git tag until it is published. It owns encoding, queries, transaction
+`@ararat-network/sdk` is a dependency, pinned at an exact version from npm. It owns encoding, queries, transaction
 building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the app adds no second implementation of any
 of them.
 
@@ -143,15 +143,23 @@ Shared by every client and every adapter, as a pipeline:
    unknown type URL shown as unknown, with the URL; a contract payload shown as unverified; an ADR-036 document parsed
    and shown with its origin, domain, chain id, and expiry; and the intended amount, the fee ceiling, the tax, and what
    will be charged shown apart, as the direction's
-   [fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks.
-3. **Fees.** The SDK's fee quote with headroom the app passes explicitly; the SDK's named `arkd` constants are the
-   app's defaults, and the review states them. In the first tranche the member holds NOAH alone, and NOAH is charged
-   whole, so the app declares the NOAH requirement with its margin and tells the member the margin is a tip; a stable
-   leg, once conversion opens, is padded for free
-   ([client fees](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md)).
-4. **Sign.** Through the adapter the account belongs to.
-5. **Broadcast.** Sync, then wait for inclusion. The outcome keeps its class: an ante refusal, an execution failure, a
-   module error, a timeout with the hash still pending, or a node that could not be reached. None is summarised away.
+   [fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks. The amount
+   and the fee ceiling are read from the document. The tax and what will be charged are the chain's, so they come from
+   the fee quote the caller passes with the request, and review shows them as the chain's figures at the quote's
+   height, not as the signer's own.
+3. **Sign.** Through the adapter the account belongs to. The signature goes back to the caller.
+
+The pipeline ends at the signature. The signer reaches no node and no service: it reviews and signs the document it
+is given, and choosing a fee and broadcasting are the caller's, through the SDK.
+
+- **Fees.** The feature that builds the transaction takes the SDK's fee quote with headroom it passes explicitly; the
+  SDK's named `arkd` constants are the app's defaults, and the review states them. In the first tranche the member
+  holds NOAH alone, and NOAH is charged whole, so the app declares the NOAH requirement with its margin and tells the
+  member the margin is a tip; a stable leg, once conversion opens, is padded for free
+  ([client fees](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md)).
+- **Broadcast.** The feature broadcasts the signed transaction through the SDK: sync, then wait for inclusion. The
+  outcome keeps its class: an ante refusal, an execution failure, a module error, a timeout with the hash still
+  pending, or a node that could not be reached. None is summarised away.
 
 Every step is TypeScript, shared by the phone and the web. Review produces a model, the decoded fields with their
 labels and amounts, which each client renders with its own components, so the two clients share one reading and no
@@ -179,7 +187,7 @@ keystore, so nothing native reaches a browser build.
 
 ```text
 signer/
-  src/        the core: consent, review, fees, broadcast, the sign-arbitrary call, the handoff protocol
+  src/        the core: consent, review, the sign-arbitrary call, the handoff protocol
   keystore/   the device keystore adapter: its TypeScript entry, and ios/ and android/ for the native module
   ledger/     the Ledger adapter over an injected transport: Bluetooth on the phone, WebUSB or WebHID on the web
 ```
@@ -252,7 +260,7 @@ Four capabilities, each granted separately and none implied by another:
 | connect        | An account is made available to the caller                              |
 | read addresses | The caller reads the account's address and public key                   |
 | sign           | The caller may request a signature, each one approved on review         |
-| change network | The caller may switch the network the signer reads from and signs for   |
+| change network | The caller may switch the network the signer signs for                  |
 
 In the first tranche the callers are the app's own features, each holding the capabilities it needs and nothing more,
 and the signer refuses a feature that reaches past its grant. There is no blanket session. When the wallet kit arrives,
@@ -366,9 +374,9 @@ The membership service's KMS provider is the service's decision, not the app's, 
 Aligned with the direction's first two steps. Each step names what done looks like, and none waits on a later one.
 
 1. **Signer core and keystore.** The signer package implementing the SDK's `Signer`; the device keystore on iOS and
-   Android; consent and review on decoded messages; fee selection and broadcast; the sign-arbitrary call; the Ledger
-   adapter. Done: the signup vectors and the decoding fixtures pass, the emulator suite signs through the adapter, and a
-   localnet transaction signs from a device key and from a Ledger.
+   Android; consent and review on decoded messages; the sign-arbitrary call; the Ledger adapter. Done: the signup
+   vectors and the decoding fixtures pass, the emulator suite signs through the adapter, and a localnet transaction,
+   built and broadcast by a test through the SDK, signs from a device key and from a Ledger.
 2. **Signup.** The schema snapshot and the backend client generated from it, committed; sign-in with Apple and
    Google; device attestation; the phone number; the vouch flow for an existing member; the challenge signed and
    submitted. Done: the tracks meet, a member registers through the membership service from a device key and from a
