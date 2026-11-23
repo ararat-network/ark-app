@@ -1,0 +1,12 @@
+# Each workspace is a top-level directory named by its role; adding one is a
+# deliberate line here.
+packages:
+  - signer
+
+# pnpm blocks dependencies' install scripts by default. esbuild's platform
+# package ships the binary tsx runs, so its script stays blocked.
+allowBuilds:
+  esbuild: false
+
+minimumReleaseAgeExclude:
+  - '@ararat-network/sdk@0.1.2'

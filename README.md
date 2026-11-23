@@ -8,7 +8,8 @@ the app, and every feature asks it for a signature without ever seeing a key. Th
 [tooling direction](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-app) says
 what the app is for and where it sits among Ark's repositories.
 
-Nothing is built yet. [DESIGN.md](DESIGN.md) is the design the first commit follows, and it is temporary: as each
+The first workspace exists: [`signer/`](signer/README.md), with the signup protocol's documents and their proof.
+Nothing else is built yet. [DESIGN.md](DESIGN.md) is the design the rest follows, and it is temporary: as each
 workspace is built, its part of the design moves into that workspace's README.
 
 ## Layout
@@ -26,3 +27,17 @@ role, as in `ark`, with its own README. `pnpm-workspace.yaml` lists them, so add
 
 `.github/` holds the automation. It and `signer/` change only on their owners' review
 ([CODEOWNERS](.github/CODEOWNERS)).
+
+## Development
+
+pnpm through corepack, on Node 22 or later. Dependency install scripts are blocked and every version is exact.
+
+```sh
+pnpm install
+pnpm lint
+pnpm -r run check
+pnpm -r run test
+```
+
+`pnpm lint` checks the whole repository with Biome; `check` and `test` run each workspace's type check and its tests,
+which sit beside the code they test.
