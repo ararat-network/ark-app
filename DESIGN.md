@@ -37,7 +37,7 @@ they have to fund, or a transaction they cannot read.
   Attest on iOS, Play Integrity on Android), verify a phone number, then name the member who vouches or pass the
   identity check once it exists. The app then generates the key, signs the membership service's challenge through the
   signer's sign-arbitrary call, and submits the address with the proof of possession
-  ([signup protocol](https://github.com/ararat-network/ark-sdk/blob/main/docs/SIGNUP_PROTOCOL.md)). An existing member
+  ([signup protocol](signer/docs/SIGNUP_PROTOCOL.md)). An existing member
   vouches from the same app, signing the vouch document for the admission they are answering. The cheap signals price a
   fake in effort and name nobody; the service verifies them, the app only collects them.
 - **The grant view.** The grant as the member sees it, from the Disbursement module's `Member`, `Grant`, and
@@ -162,7 +162,7 @@ share one implementation.
 
 `signArbitrary` is the signup protocol's producer and nothing else in the first tranche. The signer parses the data as
 a document of the protocol's
-[§4](https://github.com/ararat-network/ark-sdk/blob/main/docs/SIGNUP_PROTOCOL.md#4-documents), refuses a domain it
+[§4](signer/docs/SIGNUP_PROTOCOL.md#4-documents), refuses a domain it
 does not know, and shows the member the origin, the chain id, and the expiry before they sign. The signup flow requests
 a challenge from the service origin configured for the network and refuses one from anywhere else. A vouch document
 shows the voucher which admission they are answering, and the signer signs it only from the app's vouch flow, never
@@ -192,7 +192,7 @@ path the device app accepts, confirms the address on the device at first use, an
 device displays the sign document, so `signDirect` is refused and the SDK's builder takes the amino path for a Ledger
 account. An ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the
 data as base64
-([signup protocol §5](https://github.com/ararat-network/ark-sdk/blob/main/docs/SIGNUP_PROTOCOL.md#5-signature)). The
+([signup protocol §5](signer/docs/SIGNUP_PROTOCOL.md#5-signature)). The
 devices are those a member can sideload until Ledger lists the app
 ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a device without
 Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature signing, the relay,
@@ -294,7 +294,7 @@ pull request.
 ### Session versus key
 
 The signup protocol's
-[§10](https://github.com/ararat-network/ark-sdk/blob/main/docs/SIGNUP_PROTOCOL.md#10-security-notes) draws the line:
+[§10](signer/docs/SIGNUP_PROTOCOL.md#10-security-notes) draws the line:
 the proof binds an address to an admission and a key, not to a session, so a stolen session can submit the thief's
 address against the victim's admission. The service's controls bound that, device attestation and the platform account
 on the session, and the app adds three. The challenge is requested, signed, and submitted in one flow on the attested
