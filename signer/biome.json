@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["*.json", "signer/*.json", "signer/src/**", "!pnpm-lock.yaml"]
+    "includes": ["*.json", "src/**", "!pnpm-lock.yaml"]
   },
   "formatter": {
     "enabled": true,
@@ -27,7 +27,7 @@
   },
   "overrides": [
     {
-      "includes": ["**/*.test.ts", "signer/src/testing/**"],
+      "includes": ["**/*.test.ts", "src/testing/**"],
       "linter": {
         "rules": {
           "style": {

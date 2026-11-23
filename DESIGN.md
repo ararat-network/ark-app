@@ -2,7 +2,7 @@
 
 For the app's contributors, the signer package's reviewers, and the membership service's builders, who meet the app at
 its API. This document is the design the first commit follows: nothing in the repository is built, and every section
-describes what will be, not what is. It is temporary: as each workspace is built, its part moves into that workspace's
+describes what will be, not what is. It is temporary: as each package is built, its part moves into that package's
 README, and the file is deleted once nothing is left in it. The
 [tooling direction](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) owns what the
 app is for and where it sits among Ark's repositories; this document owns how the app is built, and links to the
@@ -97,7 +97,7 @@ data, and neither is consensus state.
 
 ## 2. Repository shape
 
-The [README's layout](README.md#layout) names the workspaces, what each is responsible for, and what each must not
+The [README's layout](README.md#layout) names the packages, what each is responsible for, and what each must not
 become.
 
 The two clients share no components: the phone renders React Native views and the web renders the DOM, and what they
@@ -110,7 +110,7 @@ building, fees, broadcast, the ADR-036 producer, decoding, and formatting; the a
 of them.
 
 The toolchain is the SDK's: pnpm with dependency install scripts blocked, exact versions, Node 22, and tests beside
-the code they test. CI type-checks, lints, and tests every workspace, checks that the committed backend client
+the code they test. CI type-checks, lints, and tests every package, checks that the committed backend client
 regenerates from the committed schema snapshot, and checks the SDK pin; it holds no credential, so whether the snapshot
 is current is the refreshing builder's check, not CI's. The phone app is React Native through Expo: the Expo Modules
 API gives the keystore its typed bridge, and continuous native generation produces the Xcode and Gradle projects at

@@ -48,11 +48,16 @@ none of them has a second implementation here. A bump to it is reviewed by this 
 
 ## Development
 
-From the repository root, after `pnpm install`:
+From this directory, with pnpm through corepack on Node 22 or later:
 
 ```sh
-pnpm --filter @ararat-network/signer run check
-pnpm --filter @ararat-network/signer run test
+pnpm install
+pnpm lint
+pnpm check
+pnpm test
 ```
+
+The package stands alone: its manifest, lockfile, and tooling configuration are all here, and nothing at the
+repository root is needed to build or test it. The repository's [LICENSE](../LICENSE) covers it.
 
 The tests run on `node:test` through `tsx`. The package exports its TypeScript source, so there is no build step.

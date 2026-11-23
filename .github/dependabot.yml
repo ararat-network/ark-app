@@ -15,17 +15,16 @@ updates:
         patterns:
           - "*"
 
-  # Every workspace resolves through the one lockfile at the root, so one
-  # pull request a week moves them together. A bump that reaches the signer
-  # is reviewed by its owners.
+  # Each package has its own lockfile, so each gets its own entry and its own
+  # weekly pull request. The signer's is reviewed by its owners.
   - package-ecosystem: npm
-    directory: "/"
+    directory: "/signer"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     labels:
       - dependencies
     groups:
-      npm:
+      signer:
         patterns:
           - "*"

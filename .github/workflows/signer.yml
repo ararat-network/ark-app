@@ -1,22 +1,28 @@
-name: ci
+name: signer
 
-# Lints the repository and type-checks and tests every workspace. It holds no
-# credential and needs none.
+# Lints, type-checks, and tests the signer package from its own directory,
+# with its own lockfile. It holds no credential and needs none.
 on:
   push:
     branches: [main]
+    paths: ["signer/**", ".github/workflows/signer.yml"]
   pull_request:
+    paths: ["signer/**", ".github/workflows/signer.yml"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: signer-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: signer
 
 jobs:
   lint:
-    name: Lint and format
+    name: "signer: lint and format"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,7 +35,7 @@ jobs:
       - run: pnpm lint
 
   test:
-    name: Type check and tests (Node ${{ matrix.node }})
+    name: "signer: type check and tests (Node ${{ matrix.node }})"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -43,5 +49,5 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r run check
-      - run: pnpm -r run test
+      - run: pnpm check
+      - run: pnpm test
