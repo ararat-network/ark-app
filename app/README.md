@@ -1,0 +1,151 @@
+# app
+
+The phone app, for iOS and Android: the first home of everything a member does. It holds no key: every feature asks
+the [signer](../signer/README.md) for a signature.
+
+Nothing here is built yet. This README is the design the package follows, and each part is rewritten as what is
+once it is built. The [repository's README](../README.md) says where the package sits among the others and the
+order they are built in.
+
+## First-tranche scope
+
+- **Signup.** The member process in front of the key: sign in with one Apple or Google account, attest the device (App
+  Attest on iOS, Play Integrity on Android), verify a phone number, then name the member who vouches or pass the
+  identity check once it exists. The app then generates the key, signs the membership service's challenge through the
+  signer's sign-arbitrary call, and submits the address with the proof of possession
+  ([signup protocol](../signer/docs/SIGNUP_PROTOCOL.md)). An existing member
+  vouches from the same app, signing the vouch document for the admission they are answering. The cheap signals price a
+  fake in effort and name nobody; the service verifies them, the app only collects them.
+- **The grant view.** The grant as the member sees it, from the Disbursement module's `Member`, `Grant`, and
+  `GrantJournal` queries: amount, paid and remaining, the schedule, the next payment and when, the member's status, and
+  the end of the two-week hold before the first tenth.
+- **The distribution screen.** Readable before signup and without an account: the open tranche and the pools from
+  `Balance`, the member count against the step's headcount, and the figures the step review published in the proposal
+  that opened the step, each with the height it was read at.
+- **Staking.** Each payment that arrives is put in front of the member to delegate. The validator picker shows each
+  validator's share of bonded stake as its distance from a third, the share the member's delegation would give it, and
+  defaults away from the founding set, read from the chain as the operators whose beneficiary records
+  [carry a seat](https://github.com/ararat-network/ark/blob/main/x/disbursement/README.md#ownership-and-founding-seats);
+  the member chooses.
+- **Voting.** Every open proposal is put in front of the member, with the vote their delegation would otherwise inherit
+  from its validator.
+- **Send.** Paid coins out to an address, with the tax and the fee shown apart from the amount.
+- **Gas from the tenth.** The first tenth pays two weeks after registration; the app pays every fee from it, in NOAH,
+  and the member funds nothing.
+- **Strings outside code.** Every string a member reads is a resource from the first release, so a language is a
+  translation, not a build
+  ([languages](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#languages)).
+
+## Later scope
+
+The direction's later scope: simulation and comprehensible review for every message type, fee and tax presentation,
+market operations with explicit pricing and slippage, a contributor's interactions with the Disbursement module, account
+recovery beyond [the signer's backup](../signer/README.md#backup-and-recovery), external wallets behind the signer
+interface, and multisignature signing for committees and shared accounts. None of it is in the first tranche, and the
+[build order](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#build-order) says when
+each comes.
+
+## Reading the chain
+
+- The network comes from [`ark-registry`](https://github.com/ararat-network/ark-registry) through the SDK: chain id,
+  prefix, denominations, endpoints. The app checks a node's chain id against the registry's and refuses a mismatch.
+- Every figure the app shows carries the height it was read at, and the app tells node unavailability, indexer lag, a
+  refused transaction, and an unconfirmed broadcast apart.
+- The member may choose the node. The registry's endpoints are the defaults, and no endpoint is one the member cannot
+  replace.
+- Nothing the app computes is authoritative: tax and gas come from the Treasury queries, the grant's figures from
+  Disbursement, and the outcome from the chain.
+
+## Fees and broadcast
+
+The signer reviews and signs, and reaches no node ([the core](../signer/README.md#the-core)). Choosing a fee and
+broadcasting are the feature's, through the SDK.
+
+- **Fees.** The feature that builds the transaction takes the SDK's fee quote with headroom it passes explicitly; the
+  SDK's named `arkd` constants are the app's defaults, and the review states them. In the first tranche the member
+  holds NOAH alone, and NOAH is charged whole, so the app declares the NOAH requirement with its margin and tells the
+  member the margin is a tip; a stable leg, once conversion opens, is padded for free
+  ([client fees](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md)).
+- **Broadcast.** The feature broadcasts the signed transaction through the SDK: sync, then wait for inclusion. The
+  outcome keeps its class: an ante refusal, an execution failure, a module error, a timeout with the hash still
+  pending, or a node that could not be reached. None is summarised away.
+
+## Stack
+
+The phone app is React Native through Expo: the Expo Modules API gives the keystore its typed bridge, and continuous
+native generation produces the Xcode and Gradle projects at build time from the app's config, so the one native code in
+the tree is the keystore's Swift and Kotlin, and the key never enters JavaScript. The native surface beyond the
+keystore, the biometric prompt, the Ledger Bluetooth transport, device attestation, and the Apple and Google sign-in,
+comes from pinned modules and holds no key.
+
+Expo Router keeps its routes in a directory named `app`, so the phone app keeps them at `app/src/app/`, the `src` form
+the router accepts, and keeps the name the direction uses. The Expo SDK is pinned like any other dependency, since the
+generated native projects are only as fixed as it is.
+
+**The alternative.** Native apps in Swift and Kotlin sharing a signer core in Rust, through UniFFI on the phones and
+WebAssembly on the web, or in Kotlin Multiplatform, would keep the key and the signing off a JavaScript bridge, with a
+smaller supply chain and no React Native release cadence to follow. It would cost two native user interfaces beside the
+web's, so the screens and the strings written three times; bindings per platform for the core; three review surfaces
+for the one-meaning rule; and a smaller pool of contributors. The design takes React Native and draws the native
+boundary around the key; which React Native tooling is the decision left ([decisions](#decisions)).
+
+## Security
+
+### What the app holds
+
+- The seed, wrapped as in [the keystore](../signer/README.md#keystore-per-platform), and under option A the backup blob
+  in the platform keychain.
+- The member's address and public key.
+- The membership session, a token the service issues and binds as the service decides, and the Apple or Google
+  sign-in token during signup.
+- Cached chain reads with their heights.
+- The member's language, node, and preferences.
+
+### What it never holds
+
+- A plaintext seed, key, or mnemonic at rest. The mnemonic is shown once and never stored.
+- The phone number after its verification, or anything else that names a person. What the service keeps is its own
+  design, and nothing in it names a person either
+  ([identity data](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#identity-data)).
+- The vouch graph, other members' standings, or admission records.
+- Chain state as truth.
+- A third-party analytics or crash-reporting SDK that sees the member. What is reported is opt-in and names no address.
+
+### Session versus key
+
+The signup protocol's [§10](../signer/docs/SIGNUP_PROTOCOL.md#10-security-notes) draws the line: the proof binds an
+address to an admission and a key, not to a session, so a stolen session can submit the thief's address against the
+victim's admission. The service's controls bound that, device attestation and the platform account on the session, and
+the app adds three. The challenge is requested, signed, and submitted in one flow on the attested device, with no path
+that signs a challenge for a session elsewhere. The grant view shows the registered address and the end of the hold, so
+the member sees a wrong address while the committee can still suspend. And the session never reaches the key, which sits
+behind the signer and the biometric prompt.
+
+### Inputs
+
+Everything the app receives is data: deep links, QR codes, the membership API's responses, node responses, Ledger
+responses, and the clipboard. Each is parsed by a typed decoder and never executed or rendered as markup. The app
+checks a node's chain id against the registry, and the SDK checks every response's shape.
+
+### Updates and release signing
+
+- Store builds are made in CI from a release tag on a reviewed `main` and signed as the stores require: Apple signs
+  iOS distribution; Android is signed with an upload key held in CI's secrets, with Play App Signing holding the app
+  signing key. Release tags are immutable and created only by administrators, under the rulesets `ark` uses.
+- No over-the-air JavaScript updates in the first release. An over-the-air update is code the stores never reviewed,
+  signed by a key the project holds, and the signer's code changes only through a reviewed release. The capability is
+  left out of the build, not merely unused.
+- The app declares the SDK and chain versions it was built against and degrades safely on an unknown message type,
+  which review shows as unknown.
+
+The web client's release is in [its README](../web/README.md#release).
+
+## Decisions
+
+| Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| React Native tooling              | React Native is settled ([stack](#stack)); Expo's module API with generated native projects, or bare React Native with committed projects and a Turbo Module | Expo's module API and generated projects                                                                            | The scaffold                                                              |
+
+## What it must not become
+
+A holder of key material; a place where chain policy is computed.
