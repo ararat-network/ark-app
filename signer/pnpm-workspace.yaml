@@ -6,4 +6,4 @@ allowBuilds:
 # pnpm refuses a version published too recently. The SDK is first-party and is
 # pinned here the day it is released, so the pinned version alone is excluded.
 minimumReleaseAgeExclude:
-  - '@ararat-network/sdk@0.2.0'
+  - '@ararat-network/sdk@0.3.0'
