@@ -1,0 +1,19 @@
+node_modules/
+.DS_Store
+*.tgz
+*.tsbuildinfo
+
+# Expo's own working files
+.expo/
+dist/
+expo-env.d.ts
+
+# The native projects are generated at build time from app.json and never
+# committed: what is built is fixed by the pinned Expo SDK and that config.
+/ios/
+/android/
+
+# Build output of the native module
+.cxx/
+.kotlin/
+build/

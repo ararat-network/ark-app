@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       signer: ${{ steps.changed.outputs.signer }}
+      app: ${{ steps.changed.outputs.app }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,7 +36,7 @@ jobs:
       - id: changed
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: .github/scripts/changed-packages.sh "$BASE" signer | tee -a "$GITHUB_OUTPUT"
+        run: .github/scripts/changed-packages.sh "$BASE" signer app | tee -a "$GITHUB_OUTPUT"
 
   signer-lint:
     name: "signer: lint and format"
@@ -117,10 +118,117 @@ jobs:
       # exchanges it records are the ones the unit tests replay.
       - run: pnpm test:emulator:record
 
+  app-lint:
+    name: "app: lint and format"
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  app-test:
+    name: "app: type check and tests (Node ${{ matrix.node }})"
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+
+  # The two jobs below generate the native project from the app's config,
+  # build it, install it on a simulator or an emulator, start it, and fail
+  # unless the device's log shows the native module answering: Swift and C on
+  # iOS, Kotlin and the same C on Android.
+  app-ios:
+    name: "app: builds and calls native code on iOS"
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Boot a simulator
+        run: |
+          xcodebuild -version
+          device=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; print(next(d["udid"] for r in json.load(sys.stdin)["devices"].values() for d in r if d["name"].startswith("iPhone")))')
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+      - run: pnpm check:ios
+        env:
+          CI: "1"
+
+  app-android:
+    name: "app: builds and calls native code on Android"
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: zulu
+          java-version: 17
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # The emulator needs hardware virtualisation, which the runner has once its device is opened to the runner's user.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          working-directory: app
+          script: pnpm check:android
+        env:
+          CI: "1"
+
   ci:
     # The main ruleset requires this check by name.
     name: ci
-    needs: [changes, signer-lint, signer-fixtures, signer-test, signer-ledger]
+    needs: [changes, signer-lint, signer-fixtures, signer-test, signer-ledger, app-lint, app-test, app-ios, app-android]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

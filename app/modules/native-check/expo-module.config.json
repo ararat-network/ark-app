@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["NativeCheckModule"],
+    "podspecPath": "NativeCheck.podspec"
+  },
+  "android": {
+    "modules": ["network.ararat.ark.nativecheck.NativeCheckModule"]
+  }
+}

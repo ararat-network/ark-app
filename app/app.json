@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Ark",
+    "slug": "ark",
+    "version": "0.0.0",
+    "scheme": "ark",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "network.ararat.ark",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "network.ararat.ark"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

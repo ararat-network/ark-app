@@ -1,0 +1,18 @@
+# pnpm blocks dependencies' install scripts by default, and each is kept
+# blocked. esbuild's platform package ships the binary tsx runs.
+allowBuilds:
+  esbuild: false
+
+# A package's optional peers are not installed for it. Left on, pnpm brings in
+# every animation and gesture library the router can use, and each one that
+# has native code is then compiled into the app. What the app needs it names
+# in package.json. `pnpm peers check` then lists three it would have added,
+# react-dom, react-native-gesture-handler, and react-native-reanimated: they
+# are for the router's web tabs and its drawer, which the app does not use.
+autoInstallPeers: false
+
+# @expo/fingerprint, a build tool of Expo's, holds minimatch at 10, below the
+# release that fixes GHSA-g3hv-75wg-m249. It uses the public matcher alone,
+# which 11 keeps.
+overrides:
+  minimatch@>=10.0.0 <11.0.1: ^11.0.1

@@ -3,9 +3,31 @@
 The phone app, for iOS and Android: the first home of everything a member does. It holds no key: every feature asks
 the [signer](../signer/README.md) for a signature.
 
-Nothing here is built yet. This README is the design the package follows, and each part is rewritten as what is
-once it is built. The [repository's README](../README.md) says where the package sits among the others and the
-order they are built in.
+The [repository's README](../README.md) says where the package sits among the others and the order they are built
+in. From [first-tranche scope](#first-tranche-scope) on, this README is the design the package follows, and each part
+is rewritten as what is once it is built.
+
+## Status
+
+| Part | State |
+| --- | --- |
+| The scaffold: an Expo app that builds for iOS and Android and calls native code | Built |
+| Everything a member does | Designed |
+
+The scaffold is the app with nothing in it yet. It has one screen, which calls a native module once and says whether
+native code answered, and it exists to show that the pieces every later step needs are in place: the native projects
+generated from [app.json](app.json), a module written in Swift and Kotlin over one C source, and CI that builds both
+platforms and checks the call was made. It holds no key and imports nothing of the signer's yet.
+
+## Layout
+
+| Path | What it holds |
+| --- | --- |
+| [app.json](app.json) | The app's config, which the native projects are generated from. `ios/` and `android/` are never committed. |
+| [src/app/](src/app/index.tsx) | The routes, in the `src` form Expo Router accepts. Today, the scaffold's one screen. |
+| [src/strings.ts](src/strings.ts) | The strings the app shows, as resources and never as text in a component, until the `i18n` package holds them. |
+| [modules/native-check/](modules/native-check/src/NativeCheckModule.ts) | The native module the scaffold calls: Swift in `ios/`, Kotlin and its JNI entry in `android/`, and the C both compile in `native/`. It stands where the keystore will and goes when the keystore arrives. |
+| [scripts/check-native.sh](scripts/check-native.sh) | Starts an installed build and waits for the line the native module writes to the device's log when it answers. |
 
 ## First-tranche scope
 
@@ -166,6 +188,40 @@ checks a node's chain id against the registry, and the SDK checks every response
   which review shows as unknown.
 
 The web client's release is in [its README](../web/README.md#release).
+
+## Development
+
+From this directory, with pnpm through corepack on Node 22.13 or later:
+
+```sh
+pnpm install
+pnpm lint
+pnpm check
+pnpm test
+pnpm check:ios        # builds, installs on the booted simulator, and checks native code answered
+pnpm check:android    # the same on the running emulator
+```
+
+The first three need nothing but Node. The last two need the native toolchains: Xcode with an iOS simulator and
+CocoaPods; and for Android a JDK 17, the Android SDK with the NDK the pinned React Native names, and an emulator, with
+`JAVA_HOME` and `ANDROID_HOME` set. `pnpm ios` and `pnpm android` build the debug app and start the bundler for
+development.
+
+The native projects are generated at build time from [app.json](app.json) and the pinned Expo SDK, into `ios/` and
+`android/`, which are ignored. What is built is fixed by that config and that pin, so a change to either is what a
+review reads; `pnpm prebuild` generates them afresh.
+
+Two things about the build that are not obvious:
+
+- The app's identifier on both platforms is `network.ararat.ark`, in [app.json](app.json). It is a working choice:
+  nothing has been published under it, and a store fixes an identifier for good at the first upload, so it is
+  confirmed before then.
+- The Android build asks any `cmake` on the `PATH` for its version before it uses the Android SDK's own, so a
+  `cmake` there that fails to run stops the build. The native module names the CMake it builds with, and the build
+  fetches that one from the SDK.
+
+The package stands alone: its manifest, lockfile, and tooling configuration are all here. The tests run on `node:test`
+through `tsx`, beside the code they test, and cover what needs no device.
 
 ## Decisions
 

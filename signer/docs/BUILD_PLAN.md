@@ -73,9 +73,11 @@ English diagnostic a member never reads; what a member reads is a string resourc
 
 ### 4. The device keystore, with backup A
 
-`keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin. It waits on a
-scaffold in `app/` that builds and runs a native module, which is the phone app's first pull request, on Expo's
-module API with generated projects.
+`keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin. It is built on
+the phone app's [scaffold](../../app/README.md#status), an Expo app whose build already compiles Swift, Kotlin, and
+one C source for both platforms and calls them from JavaScript with bytes passed through whole. The scaffold leaves
+two things to this stage, since its native module is inside `app/` and the keystore is not: the app finding a native
+module in a sibling package, and the app's bundler resolving that package's TypeScript and its own dependencies.
 
 - Generation, wrapping, signing, and zeroisation as in [keystore per platform](../README.md#keystore-per-platform),
   with libsecp256k1 at a pinned release built from source.
