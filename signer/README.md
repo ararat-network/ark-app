@@ -135,8 +135,9 @@ is the core's too, since both ends of it must share one implementation.
 Built on the SDK's decoder, which `ark`'s decoding fixtures test, from the body and the fee the sign document
 describes. A direct document and an amino one of the same transaction give the same review.
 
-- **Each message, in the order they run.** The four a member signs in the first tranche, a delegation, a vote, a
-  send, and a withdrawal of rewards, have a summary, which states every member the message carries: one a summary
+- **Each message, in the order they run.** Seven have a summary: the four a member signs in the first tranche, a
+  delegation, a vote, a send, and a withdrawal of rewards, and three a member may sign after it, an undelegation, a
+  redelegation, and a move of their grant's payee. A summary states every member the message carries: one a summary
   cannot state whole is not summarised in part. Any other type the chain has is shown as its type URL and the chain's
   JSON view, marked as not summarised. A type the signer does not have is shown as unknown, with its type URL and its
   bytes.

@@ -4,7 +4,7 @@ import { makeFee, makeTxBody, type TxBodyInput, type TxMessage, typed } from "@a
 import { MsgSendSchema } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
 import { VoteOption } from "@ararat-network/sdk/gen/cosmos/gov/v1/gov_pb.js";
 import { MsgVoteSchema } from "@ararat-network/sdk/gen/cosmos/gov/v1/tx_pb.js";
-import { MsgDelegateSchema } from "@ararat-network/sdk/gen/cosmos/staking/v1beta1/tx_pb.js";
+import { MsgBeginRedelegateSchema, MsgDelegateSchema, MsgUndelegateSchema } from "@ararat-network/sdk/gen/cosmos/staking/v1beta1/tx_pb.js";
 import type { Fee } from "@ararat-network/sdk/gen/cosmos/tx/v1beta1/tx_pb.js";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { AnySchema, timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -19,6 +19,7 @@ const CHAIN = "ark-fixtures-1";
 const MEMBER = "ark102p6s52n97e7zcmxc49ufwx04lntre5ktqkkzp";
 const OTHER = "ark1lw7jrngdgm88ruz8v7k6s70gssu6vryufel8nq";
 const VALIDATOR = "arkvaloper107sn6n6ylxxl6md3wtwy9n4u0j5a3azeu70grj";
+const SECOND_VALIDATOR = "arkvaloper1lw7jrngdgm88ruz8v7k6s70gssu6vryua5r6ky";
 const NOAH_FEE = makeFee({ amount: [{ denom: "anoah", amount: "26250000000000000" }], gasLimit: 250000n });
 
 type Reviewed = ReturnType<typeof reviewTransaction>;
@@ -49,6 +50,52 @@ test("a delegation is its delegator, its validator, and the amount staked, with 
     messages: [delegate("10000000000000000000")],
     fields: [chain, amount("transaction.fee_ceiling", "anoah", "26250000000000000"), number("transaction.gas_limit", "250000")],
   });
+});
+
+test("an undelegation is its delegator, its validator, and the amount unbonded", () => {
+  assert.deepEqual(ofFixture(txFixture("staking_undelegate")).messages, [
+    {
+      kind: "summary",
+      typeUrl: "/cosmos.staking.v1beta1.MsgUndelegate",
+      message: "message.undelegate",
+      fields: [
+        address("message.undelegate.delegator", MEMBER),
+        address("message.undelegate.validator", VALIDATOR),
+        amount("message.undelegate.amount", "anoah", "1000000000000000000"),
+      ],
+    },
+  ]);
+});
+
+test("a redelegation is its delegator, the validator it leaves, the one it goes to, and the amount moved", () => {
+  assert.deepEqual(ofFixture(txFixture("staking_begin_redelegate")).messages, [
+    {
+      kind: "summary",
+      typeUrl: "/cosmos.staking.v1beta1.MsgBeginRedelegate",
+      message: "message.redelegate",
+      fields: [
+        address("message.redelegate.delegator", MEMBER),
+        address("message.redelegate.from_validator", VALIDATOR),
+        address("message.redelegate.to_validator", SECOND_VALIDATOR),
+        amount("message.redelegate.amount", "anoah", "1000000000000000000"),
+      ],
+    },
+  ]);
+});
+
+test("a move of a grant's payee is its sender, the grant, and the address paid from then on", () => {
+  assert.deepEqual(ofFixture(txFixture("disbursement_set_payee")).messages, [
+    {
+      kind: "summary",
+      typeUrl: "/ark.disbursement.v1.MsgSetPayee",
+      message: "message.set_payee",
+      fields: [
+        address("message.set_payee.sender", "ark1nhfd6erhst0gespka23c8afl3fc0303msnfng6"),
+        number("message.set_payee.grant", "1"),
+        address("message.set_payee.payee", OTHER),
+      ],
+    },
+  ]);
 });
 
 test("a vote is the proposal, the voter, and the option", () => {
@@ -133,12 +180,12 @@ test("the fee section of every fixture is its declared fee, each denomination ap
 });
 
 test("a type the chain has and review has no summary for is shown as the chain's JSON view", () => {
-  const f = txFixture("staking_undelegate");
+  const f = txFixture("distribution_set_withdraw_address");
   const [message, ...rest] = ofFixture(f).messages;
   assert.equal(rest.length, 0);
   assert.deepEqual(message, {
     kind: "not_summarised",
-    typeUrl: "/cosmos.staking.v1beta1.MsgUndelegate",
+    typeUrl: "/cosmos.distribution.v1beta1.MsgSetWithdrawAddress",
     json: f.tx.body.messages[0],
     unverifiedPayload: false,
   });
@@ -187,6 +234,17 @@ test("a message a summary cannot state whole is shown as JSON, not summarised in
     create(AnySchema, {
       typeUrl: "/cosmos.staking.v1beta1.MsgDelegate",
       value: toBinary(MsgDelegateSchema, create(MsgDelegateSchema, { delegatorAddress: MEMBER, validatorAddress: VALIDATOR })),
+    }),
+    create(AnySchema, {
+      typeUrl: "/cosmos.staking.v1beta1.MsgUndelegate",
+      value: toBinary(MsgUndelegateSchema, create(MsgUndelegateSchema, { delegatorAddress: MEMBER, validatorAddress: VALIDATOR })),
+    }),
+    create(AnySchema, {
+      typeUrl: "/cosmos.staking.v1beta1.MsgBeginRedelegate",
+      value: toBinary(
+        MsgBeginRedelegateSchema,
+        create(MsgBeginRedelegateSchema, { delegatorAddress: MEMBER, validatorSrcAddress: VALIDATOR, validatorDstAddress: SECOND_VALIDATOR }),
+      ),
     }),
     typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: MEMBER, toAddress: OTHER })),
   ];
