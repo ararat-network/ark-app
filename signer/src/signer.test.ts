@@ -416,6 +416,53 @@ test("an adapter that cannot list its accounts stops no other from signing, and 
   );
 });
 
+test("an adapter that can say whether its key can sign is asked before the review, and a key that cannot is refused with nothing shown", async () => {
+  const good = memoryAdapter(keyOf(ok));
+  const events: string[] = [];
+  const asked: string[] = [];
+  const saying: KeyAdapter = {
+    ...good,
+    ready: async (address) => {
+      asked.push(address);
+      events.push("ready");
+    },
+    sign: async (address, signBytes) => {
+      events.push("sign");
+      return good.sign(address, signBytes);
+    },
+  };
+  const r = rig({
+    adapters: [saying],
+    answer: async () => {
+      events.push("review");
+      return "approved";
+    },
+  });
+  const handle = r.signer.grant(SIGNUP);
+  // Asked when the request's turn comes, not when it is made: the answer is of the moment the review is shown.
+  await Promise.all([handle.signArbitrary(ok.signer, okData), handle.signArbitrary(ok.signer, okData)]);
+  assert.deepEqual(events, ["ready", "review", "sign", "ready", "review", "sign"]);
+  assert.deepEqual(asked, [ok.signer, ok.signer]);
+
+  // A request refused for what it asks never reaches the key, to sign or to say whether it could.
+  await refusal(r.signer.grant({ ...SIGNUP, documents: [VOUCH_DOMAIN] }).signArbitrary(ok.signer, okData), "not_granted");
+  assert.equal(asked.length, 2);
+
+  const cannot: [string, RefusalKind, () => Promise<void>][] = [
+    ["a locked Ledger", "device_locked", async () => Promise.reject(new SignerRefusal("device_locked", "the Ledger is locked"))],
+    ["a Ledger out of reach", "device_unavailable", async () => Promise.reject(new SignerRefusal("device_unavailable", "no device"))],
+    ["an adapter that fails", "invalid", async () => Promise.reject(new TypeError("undefined is not a function"))],
+  ];
+  for (const [name, kind, ready] of cannot) {
+    const key = memoryAdapter(keyOf(ok));
+    const refused = rig({ adapters: [{ ...key, ready }] });
+    const err = await refusal(refused.signer.grant(SIGNUP).signArbitrary(ok.signer, okData), kind, name);
+    if (kind === "invalid") assert.ok(err.cause instanceof TypeError, name);
+    assert.equal(refused.reviews.length, 0, `${name}: nothing is shown`);
+    assert.equal(key.signed.length, 0, `${name}: nothing reaches the key`);
+  }
+});
+
 test("what a faulty adapter returns never leaves the signer", async () => {
   const good = memoryAdapter(keyOf(ok));
   const other = memoryAdapter(keyNamed("other"));

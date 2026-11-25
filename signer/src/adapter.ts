@@ -15,6 +15,14 @@ export interface KeyAdapter {
   readonly modes: readonly SigningMode[];
   accounts(): Promise<readonly AdapterAccount[]>;
   /**
+   * Whether the account's key can sign now, asked before the member is shown a review, so that a Ledger that is
+   * locked, in another app, or not connected is learned of before they read and approve, not after. It resolves when
+   * the key can sign and rejects with a SignerRefusal naming why it cannot. It shows the member nothing and signs
+   * nothing, and `sign` asks again for itself: the answer spares the member a review and nothing relies on it. An
+   * adapter whose key is always at hand has none.
+   */
+  ready?(address: string): Promise<void>;
+  /**
    * A signature by the account's key over SHA-256 of the sign bytes: 64 bytes, r || s, low S. An adapter that
    * cannot or may not sign rejects with a SignerRefusal naming why.
    */

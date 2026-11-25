@@ -291,6 +291,23 @@ test("transactions asked for at once are reviewed one at a time, in the order as
   assert.equal(key.signed.length, 1);
 });
 
+test("a key that says it cannot sign now is refused before the transaction is shown, in either encoding", async () => {
+  const good = memoryAdapter(MEMBER_KEY);
+  let ready = false;
+  const ledgerLike: KeyAdapter = {
+    ...good,
+    ready: async () => (ready ? undefined : Promise.reject(new SignerRefusal("wrong_app", "the Ledger has no app open"))),
+  };
+  const { handle, reviews } = rig({ adapters: [ledgerLike] });
+  for (const mode of ["direct", "amino"] as const) await refusal(signTx(tx({}, mode), handle), "wrong_app", mode);
+  assert.equal(reviews.length + good.signed.length, 0);
+
+  ready = true;
+  for (const mode of ["direct", "amino"] as const) await signTx(tx({}, mode), handle);
+  assert.equal(reviews.length, 2);
+  assert.equal(good.signed.length, 2);
+});
+
 test("a signature the chain would refuse is not handed back", async () => {
   const good = memoryAdapter(MEMBER_KEY);
   const faults: [string, (signBytes: Uint8Array) => Uint8Array][] = [

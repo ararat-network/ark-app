@@ -168,6 +168,11 @@ export function createSigner(options: SignerOptions): ArkSigner {
     throw failed ?? new SignerRefusal("invalid", `the signer holds no account ${address}`);
   }
 
+  /** Asks the adapter, if it can say, whether the key can sign now: what stops it is better learned before the review than after the approval. */
+  async function requireReady(adapter: KeyAdapter, address: string): Promise<void> {
+    await fromAdapter("saying whether it can sign", async () => adapter.ready?.(address));
+  }
+
   /** Shows the review and returns only on an approval: a decline, any other answer, and a screen that fails each sign nothing. */
   async function consent(review: Review, attachment: unknown): Promise<void> {
     let decision: Decision;
@@ -223,6 +228,7 @@ export function createSigner(options: SignerOptions): ArkSigner {
       // may have expired, and then it is not shown.
       requireNetwork(doc);
       requireUnexpired(doc);
+      await requireReady(adapter, address);
       await consent(review, undefined);
       // The member may have read for longer than the document had left.
       requireUnexpired(doc);
@@ -262,6 +268,7 @@ export function createSigner(options: SignerOptions): ArkSigner {
     return inTurn(async () => {
       // The request may have waited behind another, and the network may have been switched meanwhile.
       requireChain("transaction", held.chainId);
+      await requireReady(adapter, address);
       await consent(review, attachment);
 
       const signature = await fromAdapter("signing", () => adapter.sign(address, held.signBytes));

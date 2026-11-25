@@ -92,6 +92,15 @@ test("the recording was made by the commands this adapter sends: which app, its 
     .map((e) => e.apdu.slice(10))
     .join("");
   assert.equal(sent, toHex(DELEGATE));
+  // A signature asked for through the pipeline is recorded with the three commands twice: before the review, and to sign.
+  for (const name of ["sign_unordered", "sign_signup_challenge"]) {
+    const { exchanges } = scenario(name);
+    assert.deepEqual(exchanges.slice(0, 6), [APP_INFO, VERSION, ADDRESS, APP_INFO, VERSION, ADDRESS], name);
+    assert.ok(
+      exchanges.slice(6).every((e) => e.apdu.startsWith("5502")),
+      name,
+    );
+  }
 });
 
 test("pairing shows the address on the device and returns the account the member confirmed there", async () => {
@@ -106,6 +115,14 @@ test("an account is reported without the device, and the adapter signs amino alo
   const adapter = ledgerAdapter({ account: ACCOUNT, connect: () => Promise.reject(new Error("the device was asked")) });
   assert.deepEqual(adapter.modes, ["amino"]);
   assert.deepEqual(await adapter.accounts(), [ACCOUNT]);
+});
+
+test("before a review the device is asked what a signature begins with, shows nothing, and is sent no document", async () => {
+  const device = replay([APP_INFO, VERSION, ADDRESS]);
+  assert.equal(await adapterOver(device.session).ready?.(ACCOUNT.address), undefined);
+  assert.equal(device.used(), 3);
+  assert.match(device.sent.at(-1)!, /^55040000/, "the address is read without the device showing it");
+  assert.ok(device.sent.every((apdu) => !apdu.startsWith("5502")));
 });
 
 for (const name of FIXTURES) {
@@ -126,7 +143,8 @@ test("an unordered document is sent as it is handed over, and signed", async () 
   const recorded = scenario("sign_unordered");
   const signBytes = utf8Encode(recorded.signBytes!);
   assert.match(recorded.signBytes!, /"sequence":"0","timeout_timestamp":"[^"]+","unordered":true\}$/);
-  const device = replay(recorded.exchanges);
+  // Recorded through the pipeline, which first asked whether the device could sign: the signature's own commands follow those three.
+  const device = replay(recorded.exchanges.slice(3));
   const signature = await adapterOver(device.session).sign(ACCOUNT.address, signBytes);
   assert.equal(toHex(signature), recorded.signature);
   assert.ok(verifyMessage(signature, signBytes, ACCOUNT.publicKey));
@@ -150,6 +168,30 @@ test("a signup challenge goes through the pipeline to the device, and the proof 
   assert.ok(verifyMessage(submission.signature, adr036SignBytes(ACCOUNT.address, submission.data), ACCOUNT.publicKey));
 });
 
+test("a device that cannot sign is learned of before the member is shown a review", async () => {
+  const challenge = signupVectors().vectors.find((v) => v.name === "challenge_ok")!;
+  const cases: [string, RefusalKind, LedgerSession | undefined][] = [
+    ["a locked device", "device_locked", replay([APP_INFO, version({ locked: true })]).session],
+    ["no app open", "wrong_app", replay([appInfo("BOLOS", "1.6.1")]).session],
+    ["a device that is not connected", "device_unavailable", undefined],
+  ];
+  for (const [name, kind, session] of cases) {
+    let shown = 0;
+    const signer = createSigner({
+      adapters: [ledgerAdapter({ account: ACCOUNT, connect: async () => session ?? Promise.reject(new Error("no device in range")) })],
+      network: { chainId: challenge.challenge!.chain_id!, origin: challenge.challenge!.origin! },
+      now: () => BigInt(challenge.now),
+      present: async () => {
+        shown++;
+        return "approved";
+      },
+    });
+    const signup = signer.grant({ caller: "signup", capabilities: ["connect", "sign"], documents: [SIGNUP_DOMAIN] });
+    await refusal(signDocument(signup, ACCOUNT.address, utf8Encode(challenge.data)), kind, name);
+    assert.equal(shown, 0, name);
+  }
+});
+
 test("a document the member rejected on the device is refused as rejected there", async () => {
   const recorded = scenario("reject");
   assert.equal(recorded.exchanges.at(-1)!.status, "6986");
@@ -163,6 +205,7 @@ test("a Ledger that holds another account is not the one that signs, and is sent
   const device = replay(recorded.exchanges);
   await refusal(adapterOver(device.session, other).sign(other.address, DELEGATE), "device_unavailable");
   assert.ok(device.sent.every((apdu) => !apdu.startsWith("5502")));
+  await refusal(adapterOver(replay(recorded.exchanges).session, other).ready!(other.address), "device_unavailable", "asked before a review");
 });
 
 test("another app, no app, a locked device, and an app before 2.3.0 are each refused by their own kind, and sent no document", async () => {
@@ -180,6 +223,7 @@ test("another app, no app, a locked device, and an app before 2.3.0 are each ref
     const device = replay(exchanges);
     await refusal(adapterOver(device.session).sign(ACCOUNT.address, DELEGATE), kind, name);
     await refusal(pairLedger(replay(exchanges).session), kind, `pairing with ${name}`);
+    await refusal(adapterOver(replay(exchanges).session).ready!(ACCOUNT.address), kind, `asked before a review, with ${name}`);
     assert.ok(
       device.sent.every((apdu) => !apdu.startsWith("5502")),
       name,
@@ -210,6 +254,10 @@ test("a device that cannot be reached, or stops answering, is unavailable", asyn
   await refusal(pairLedger(replay(paired.exchanges, { at: 2, error: dropped }).session), "device_unavailable");
   const unreachable = ledgerAdapter({ account: ACCOUNT, connect: () => Promise.reject(new Error("no device in range")) });
   await refusal(unreachable.sign(ACCOUNT.address, DELEGATE), "device_unavailable");
+  await refusal(unreachable.ready!(ACCOUNT.address), "device_unavailable");
+  for (const at of [0, 1, 2]) {
+    await refusal(adapterOver(replay(delegate.exchanges, { at, error: dropped }).session).ready!(ACCOUNT.address), "device_unavailable", `dropped at ${at}`);
+  }
   const refusing = ledgerAdapter({ account: ACCOUNT, connect: () => Promise.reject(new SignerRefusal("device_locked", "the phone's Bluetooth is off")) });
   await refusal(refusing.sign(ACCOUNT.address, DELEGATE), "device_locked", "the client's own refusal passes through");
 });
@@ -243,6 +291,7 @@ test("a document past the device's buffer, and one for an address the adapter do
   });
   await refusal(adapter.sign(ACCOUNT.address, new Uint8Array(LEDGER_BUFFER_SIZE + 1)), "invalid");
   await refusal(adapter.sign(fixtureKey("member").address, DELEGATE), "invalid");
+  await refusal(adapter.ready!(fixtureKey("member").address), "invalid");
   assert.equal(asked, 0);
   // At the buffer's size the device is asked.
   await refusal(adapter.sign(ACCOUNT.address, new Uint8Array(LEDGER_BUFFER_SIZE)), "device_unavailable");
@@ -265,17 +314,20 @@ test("the device reviews one document at a time: a second signature waits for th
   const vote = scenario("sign_gov_vote");
   const voteBytes = utf8Encode(txFixture("gov_vote").sign_mode_amino.sign_bytes);
   const rejected = scenario("reject");
-  // A replay fails on a command out of order, so the three succeed only if none overlaps another.
-  const device = replay([...delegate.exchanges, ...rejected.exchanges, ...vote.exchanges]);
+  // A replay fails on a command out of order, so the four succeed only if none overlaps another.
+  const device = replay([...delegate.exchanges, ...rejected.exchanges, APP_INFO, VERSION, ADDRESS, ...vote.exchanges]);
   const adapter = adapterOver(device.session);
-  const [first, second, third] = await Promise.allSettled([
+  const [first, second, asked, third] = await Promise.allSettled([
     adapter.sign(ACCOUNT.address, DELEGATE),
     adapter.sign(ACCOUNT.address, DELEGATE),
+    adapter.ready!(ACCOUNT.address),
     adapter.sign(ACCOUNT.address, voteBytes),
   ]);
   assert.equal(first.status === "fulfilled" && toHex(first.value), delegate.signature);
   assert.equal(second.status === "rejected" && (second.reason as SignerRefusal).kind, "rejected_on_device");
+  assert.equal(asked.status, "fulfilled", "whether the device can sign is asked in its turn too");
   assert.equal(third.status === "fulfilled" && toHex(third.value), vote.signature);
+  assert.equal(device.used(), device.sent.length);
 });
 
 test("the bytes signed are the adapter's own copy: changing them after the call changes nothing sent", async () => {
