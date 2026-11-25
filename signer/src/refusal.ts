@@ -14,10 +14,14 @@ export const REFUSAL_KINDS = [
   "authentication_failed",
   /** The device refuses further attempts for now. */
   "locked_out",
-  /** The Ledger is not connected, or the connection dropped. */
+  /** The Ledger that holds the account is not connected, or the connection dropped. */
   "device_unavailable",
+  /** The Ledger is locked, and the member unlocks it. */
+  "device_locked",
   /** The Ledger is connected with another app open, or none. */
   "wrong_app",
+  /** The Ledger's Ark app is older than the signer signs with, and the member updates it. */
+  "app_outdated",
   /** The member rejected the document on the Ledger. */
   "rejected_on_device",
   /** Anything else: bytes that are no document, a document for another network, an account the signer does not hold, a key that returned a bad signature. */

@@ -12,7 +12,7 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The pipeline: consent, permissions, and the review of a document | Built |
 | The review of a transaction, and the SDK's `Signer` | Built |
 | The device keystore, with backup and recovery | Designed |
-| The Ledger adapter | Designed |
+| The Ledger adapter | Built |
 | The handoff protocol | Designed |
 
 From [Interface](#interface) on, what is still design is marked as designed, and is rewritten as what is once it is
@@ -34,15 +34,18 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [src/review/](src/review/model.ts) | The review model a client renders, a document as its fields, and a transaction as its messages and its fields. |
 | [src/refusal.ts](src/refusal.ts) | Why the signer did not sign, by kind. |
 | [src/adapter.ts](src/adapter.ts) | The interface whatever holds a key implements. |
+| [ledger/](ledger/adapter.ts) | The Ledger adapter, exported as `@ararat-network/signer/ledger`: pairing a Ledger, and the key adapter for the account it was paired as. |
+| [ledger/emulator/](ledger/emulator/ledger.emu.ts) | The adapter's tests against the Ark device app on the emulator, with the ledger-ark release and the SHA-256 of each binary they load. |
+| [testdata/ledger/exchanges.json](testdata/ledger/exchanges.json) | Every command and answer of an emulator run, recorded. The adapter's unit tests replay them, and CI fails when a fresh run records anything else. |
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | The order the rest is built in. |
 
-As it will be laid out once the adapters are built:
+As it will be laid out once the keystore is built:
 
 ```text
 signer/
   src/        the core: consent, review, the sign-arbitrary call, the handoff protocol
   keystore/   the device keystore adapter: its TypeScript entry, and ios/ and android/ for the native module
-  ledger/     the Ledger adapter over an injected transport: Bluetooth on the phone, WebUSB or WebHID on the web
+  ledger/     the Ledger adapter over a session of Ledger's Device Management Kit, which the client injects
 ```
 
 ## The signup documents
@@ -172,11 +175,11 @@ account's key, before it is handed back with the signer's own copy of the docume
 
 Whatever stops a signature is a `SignerRefusal` with a kind. A kind exists only where the app does something
 different for it: `declined`, `not_granted`, `expired`, and, from the adapters, `authentication_failed`, `locked_out`,
-`device_unavailable`, `wrong_app`, and `rejected_on_device`. Everything that means a bug or an attack is `invalid`:
-bytes that are no document, a document for another network, a transaction review cannot show whole, an account the
-signer does not hold, a key that returned a bad signature. An adapter's own refusal passes through the pipeline, and
-anything else an adapter throws becomes `invalid` with the cause kept. A refusal's message is an English diagnostic
-for a log; what a member reads is a string the app chooses by kind.
+`device_unavailable`, `device_locked`, `wrong_app`, `app_outdated`, and `rejected_on_device`. Everything that means a
+bug or an attack is `invalid`: bytes that are no document, a document for another network, a transaction review
+cannot show whole, an account the signer does not hold, a key that returned a bad signature. An adapter's own refusal
+passes through the pipeline, and anything else an adapter throws becomes `invalid` with the cause kept. A refusal's
+message is an English diagnostic for a log; what a member reads is a string the app chooses by kind.
 
 ## The sign-arbitrary call
 
@@ -200,21 +203,38 @@ admission they are answering.
 Two adapters in the first tranche. Both implement the same interface, `KeyAdapter`: the sign modes the key signs in,
 its accounts, and a signature over the sign bytes it is given. The core builds the sign bytes and checks every
 signature an adapter returns, so no adapter decides what is signed, and the features never know which one signed.
-Neither adapter is built yet; the tests use a key in memory.
+The Ledger adapter is built; the keystore is not, and the core's tests use a key in memory.
 
 The package is a TypeScript core with one subpath export per adapter, so a client imports what it has: the phone the
-keystore and the Ledger adapter over Bluetooth, the web the handoff and the Ledger adapter over WebUSB, and never the
-keystore, so nothing native reaches a browser build.
+keystore and the Ledger adapter, the web the handoff and the Ledger adapter, and never the keystore, so nothing
+native reaches a browser build.
 
 **Device keystore.** The default, [keystore per platform](#keystore-per-platform).
 
-**Ledger.** Over Zondax's `@zondax/ledger-cosmos-js` as published, at an exact version, on an `hw-transport`: Bluetooth
-on the phone, WebUSB or WebHID on the web. ledger-ark forks the device app and not this package, which its emulator
-tests use unmodified. The package returns a DER signature, which the adapter converts to `r || s` and normalises to
-low S. The adapter derives at `m/44'/330'/0'/0/0` with the `ark` prefix, the only path the
-device app accepts, confirms the address on the device at first use, and signs in amino JSON alone: the device displays
-the sign document, so `signDirect` is refused and the SDK's builder takes the amino path for a Ledger account. It
-needs device app 2.3.0 or later, the first that signs an unordered transaction's document, and refuses an older one.
+**Ledger.** `@ararat-network/signer/ledger`, over Zondax's `@zondax/ledger-cosmos-js` as published, at an exact
+version, which the adapter alone touches. ledger-ark forks the device app and not this package, which its emulator
+tests use unmodified.
+
+- **The connection is the client's.** The adapter is handed a session of Ledger's Device Management Kit and asks one
+  thing of it, to send a command and return the answer. The kit is what connects, on the phone and in a browser
+  alike, and it replaces Ledger's `hw-transport`, which the Zondax package reports Ledger has deprecated and warns
+  against. Which of the kit's transports each client uses is the client's to choose.
+- **Pairing, once.** `pairLedger` has the device show its address, at `m/44'/330'/0'/0/0` with the `ark` prefix, the
+  only path the device app accepts. The member confirms it on the device, and the account comes back for the client
+  to remember. The address a member checks is the one on the device.
+- **The account is reported without the device.** `ledgerAdapter` takes the paired account, so a Ledger left in a
+  drawer does not stop the signer listing its accounts. The device is reached only to sign.
+- **Before each signature** the adapter asks the device which app is open, since the Cosmos app this one was forked
+  from answers the same commands; that it is unlocked and at 2.3.0 or later, the first that signs an unordered
+  transaction's document; and that its account is the paired one. Another Ledger is refused and sent no document.
+- **Amino JSON alone.** The device displays the sign document, so `signDirect` is refused and the SDK's builder takes
+  the amino path for a Ledger account. The adapter sends the sign bytes as the core hands them over and rewrites
+  nothing, and refuses a document past the device's 16384 bytes before sending it.
+- **The signature** comes back in DER, which the adapter converts to `r || s` and normalises to low S, through a
+  strict parser.
+- **Refusals by kind.** Rejected on the device, locked, another app or none, an app too old, and a device that
+  cannot be reached each have their own; any other answer is a fault and is `invalid`.
+
 The device accepts an unordered document only as the chain writes it, signed at sequence zero, and ends its review
 on two pages, `Unordered` and `Timeout Timestamp`
 ([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)).
@@ -222,10 +242,13 @@ An ADR-036 document goes to the device as its amino sign bytes, which the device
 mode alike, with the data as base64 and not decoded: what the document says is read in the app's review
 ([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature),
 [the device's display](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). The
-devices are those a member can sideload until
-Ledger lists the app ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a
-device without Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature
-signing, the relay, and external-wallet adapters come later.
+device signs a document naming any address, so it is the core, which builds the sign bytes for the account whose key
+signs, that keeps a Ledger from signing for another.
+
+The devices are those a member can sideload until Ledger lists the app
+([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a device without
+Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature signing, the
+relay, and external-wallet adapters come later.
 
 ## Keystore per platform
 
@@ -253,7 +276,7 @@ the phishing surface. The web client builds and reviews the transaction, then si
   on the device that holds the key, and no server sees the request. The relay that carries multisig partial signatures
   ([`ark-backend`](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-backend))
   can carry handoffs once it exists.
-- **Ledger.** Over WebUSB or WebHID, through the same adapter as the phone's.
+- **Ledger.** Through the same adapter as the phone's, over the connection Ledger's kit makes from a browser.
 
 ## Backup and recovery
 
@@ -323,8 +346,17 @@ clock, so it cannot say whether that time has passed or how far off it is.
 
 The package, its native module included, has its own CODEOWNERS and its own tests: the signup protocol's vectors,
 byte-equal sign bytes and signatures; the decoding fixtures, for review; the keystore's wrap, unwrap, and zeroisation
-on both platforms; the Ledger adapter against ledger-ark's emulator suite; and the handoff round trip. It changes
-slowly and on its owners' review.
+on both platforms; the Ledger adapter against the Ark device app on the emulator; and the handoff round trip. It
+changes slowly and on its owners' review.
+
+The Ledger adapter is tested twice. On the emulator, a CI job loads the device app's binaries from a ledger-ark
+release, each checked against a SHA-256 pinned here, and on a Nano S+ and a Flex pairs, signs five fixtures' amino
+documents, signs an unordered transaction and a signup challenge through the whole pipeline, and has a document
+rejected on the device; every signature is verified under the emulator's own key. That run records every command and
+answer, and the unit tests replay the recording, with the answers the emulator does not give, a locked device,
+another app, an older one, a dropped connection, written from the recorded ones. No test here runs on hardware:
+ledger-ark's [hardware checklist](https://github.com/ararat-network/ledger-ark/blob/main/docs/DEVICE_TESTING.md) is
+where a device is checked by hand.
 
 It leaves the repository when something outside it needs it: a browser extension, a third-party wallet, the wallet kit's
 dapp protocol, or an audit that wants a frozen tag. Until then it is a package, and the app and the signer move in one
@@ -332,14 +364,20 @@ pull request.
 
 ## Dependencies
 
-Today the runtime dependencies are two. `@ararat-network/sdk` at an exact version is for bytes, the chain's sorted
-JSON, address derivation, secp256k1, and both encodings of a transaction, so none of them has a second implementation
-here. `@bufbuild/protobuf` at the version the SDK itself depends on is for reading a message through its type, which
-is how review finds a contract payload wherever a message holds one.
+Today the runtime dependencies are five, each at an exact version. `@ararat-network/sdk` is for bytes, the chain's
+sorted JSON, address derivation, secp256k1, and both encodings of a transaction, so none of them has a second
+implementation here. `@bufbuild/protobuf`, at the version the SDK itself depends on, is for reading a message through
+its type, which is how review finds a contract payload wherever a message holds one. The Ledger adapter has the other
+three: `@zondax/ledger-cosmos-js`, the device app's commands; `@zondax/ledger-js`, which that package is built on and
+which carries the transport over a Device Management Kit session; and `buffer`, which the Zondax packages take the
+sign bytes as. None of Ledger's own packages is a dependency: the client that connects a device brings the kit.
 
-As the adapters are built, the runtime dependencies are kept to: the SDK, with noble and scure through it;
-`@bufbuild/protobuf`; `@zondax/ledger-cosmos-js` and the Ledger transport packages; and libsecp256k1 at a pinned
-release, built from source in the native module. A bump to any of them is reviewed by the signer's owners.
+`@zondax/zemu`, the emulator harness, is a development dependency, and brings Docker's client and an HTTP stack with
+it. Three packages in that tree are overridden to the releases that fix advisories against them
+([pnpm-workspace.yaml](pnpm-workspace.yaml)), and none of it reaches a client.
+
+Once the keystore is built, libsecp256k1 at a pinned release joins them, built from source in the native module. A
+bump to any of them is reviewed by the signer's owners.
 
 ## Development
 
@@ -351,10 +389,17 @@ pnpm lint
 pnpm check
 pnpm test
 pnpm fixtures:check   # the decoding fixtures are those of ark at the tag in ARK_VERSION
+pnpm test:emulator    # the Ledger adapter on the emulator; needs Docker
 ```
 
 `ARK_VERSION` is the `ark` tag the pinned SDK's types are generated from, and moves with the SDK's pin: change both,
 then `pnpm fixtures:sync`.
+
+The emulator tests load the device app's binaries from the ledger-ark release named in
+[ledger/emulator/RELEASE](ledger/emulator/RELEASE), and refuse one whose SHA-256 is not the one in
+[ledger/emulator/binaries.sha256](ledger/emulator/binaries.sha256). To move to a new release, change both. Run with
+`RECORD=1` to write the exchanges the unit tests replay; `pnpm test:emulator:record` does that and fails when the
+recording differs from what is committed, which is what CI runs.
 
 The package stands alone: its manifest, lockfile, and tooling configuration are all here, and nothing at the
 repository root is needed to build or test it. The repository's [LICENSE](../LICENSE) covers it.

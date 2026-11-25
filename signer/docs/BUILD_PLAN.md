@@ -3,8 +3,9 @@
 How the signer is built out from the signup documents it holds today to the done-line of the repository's first build
 step. The [README](../README.md) is the design; this is the order, what each stage delivers, and the decisions still
 open. A stage is one pull request that passes CI on its own and moves a row of the README's status table from Designed
-to Built. A stage's section is removed here once it is built, since the README then says what is: stages 1 and 2, the
-pipeline with the review of a document and the review of a transaction with the SDK's `Signer`, are built.
+to Built. A stage's section is removed here once it is built, since the README then says what is: stages 1 to 3, the
+pipeline with the review of a document, the review of a transaction with the SDK's `Signer`, and the Ledger adapter,
+are built.
 
 ## Contents
 
@@ -64,62 +65,11 @@ handle from `signer.grant({ caller, capabilities, documents, transactions })` an
 is the SDK's `Signer`.
 
 **Refusals.** One class, `SignerRefusal`, with a `kind` only where the app does something different: `declined`,
-`not_granted`, `expired`, `authentication_failed`, `locked_out`, `device_unavailable`, `wrong_app`,
-`rejected_on_device`, and `invalid` for everything that means a bug or an attack. Its message is an English diagnostic
-a member never reads; what a member reads is a string resource the app chooses by kind.
+`not_granted`, `expired`, `authentication_failed`, `locked_out`, `device_unavailable`, `device_locked`, `wrong_app`,
+`app_outdated`, `rejected_on_device`, and `invalid` for everything that means a bug or an attack. Its message is an
+English diagnostic a member never reads; what a member reads is a string resource the app chooses by kind.
 
 ## Stages
-
-### 3. The Ledger adapter
-
-`ledger/`, exported as `@ararat-network/signer/ledger`. TypeScript over an injected transport, so it needs no app.
-It waits on one thing from ledger-ark: a release that carries the device binaries, for the emulator job here. The
-release workflow now attaches the emulator's binary for each device, `ark_zemu_<model>_v<version>.elf`, with a
-checksum for every file, but no release has been cut since: 2.3.0 carries installers alone. The job pins the release
-tag and each file's SHA-256. The adapter's unit tests wait on nothing.
-
-It no longer waits on signup. ledger-ark's emulator tests sign a signup challenge and a vouch, the protocol's own
-vectors, on every device and with no change to the device app
-([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). What
-they show bears on the adapter:
-
-- The device shows `data` as base64 and does not decode it, so the origin, which document it is, and the expiry are
-  read in the app's review alone. A challenge and a vouch look alike on the device.
-- The device signs a document naming any address as its signer. The core builds the sign bytes for the account whose
-  key signs, and that is what keeps a Ledger from signing for another address.
-- The review is the same in normal and expert mode, and is titled as a transaction.
-
-It no longer waits on the device app for unordered transactions. From 2.3.0 the app signs an unordered transaction's
-amino document and shows its expiry
-([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)),
-so a Ledger account sends as a device key does.
-
-The adapter is built on Zondax's `@zondax/ledger-cosmos-js` as published, at an exact version, and it alone touches
-the package. No fork is needed: ledger-ark forked the device app alone, and its emulator tests drive that app with
-the package unmodified. It is CommonJS and returns DER signatures with nothing said of low S.
-
-- Derives at `m/44'/330'/0'/0/0` with the `ark` prefix, confirms the address on the device at first use, and signs in
-  amino alone.
-- Converts the device's DER signature to `r || s` and normalises it to low S.
-- Maps the device's return codes to refusal kinds: `0x6986` rejected on the device, `0x5515` locked, `0x6E00` and
-  `0x6E01` the wrong app, a transport failure the device unavailable, and the rest invalid.
-- Reads the device app's version on connecting and refuses one before 2.3.0, the first that signs an unordered
-  document: an older app refuses the `unordered` and `timeout_timestamp` keys as outside its closed list. Every Ledger
-  account then has one path. The refusal is a kind of its own, `app_outdated`, added with the adapter, since the
-  member is told to update the app and `wrong_app` tells them to open it.
-- Sends an unordered document as the core hands it over, rewriting nothing. The device accepts one only as the chain
-  writes it: `unordered` the bare boolean `true`, a `timeout_timestamp` beside it, the time in UTC in Go's spelling
-  of RFC 3339, and the sequence `"0"`. Anything else it refuses before review with `0x6984`. The SDK's amino encoder
-  writes that form and the core signs only a document that encodes back to itself, so a refusal here is a fault and
-  maps to `invalid`.
-- Refuses before sending a document past the device's buffer.
-- An unordered document has no sequence to be refused for. One whose time passes while the member reads on the device
-  is refused by the chain, and is prepared again and reviewed again, never signed again unseen: one approval signs one
-  document.
-
-Done: unit tests on recorded exchanges pass, an app before 2.3.0 is refused, and a CI job signs fixture amino
-documents, an unordered document, and a signup vector on the emulator, each signature verified against the emulator's
-key.
 
 ### 4. The device keystore, with backup A
 
@@ -144,9 +94,9 @@ of the SDK's localnet smoke workflow.
 
 ### Order, and what is outside it
 
-Stages 3 and 4 are independent of each other, and the Ledger is recommended first: it has no native code, needs no
-app scaffold and no open decision of the app's, and it holds the adapter interface against a second, stricter
-implementation before Swift and Kotlin are written to it.
+Stage 4, then 5. Stage 4 is the first with native code, and the first that needs the phone app: a scaffold in `app/`
+that builds and runs a native module. The Ledger adapter was built first so that the adapter interface was held
+against a second, stricter implementation before Swift and Kotlin are written to it.
 
 The handoff protocol waits for the web client, as the repository's build order has it. `i18n` is a package of its own:
 its first form, the English strings, the check against `REVIEW_LABELS` and the refusal kinds, and a pseudo-locale, can
