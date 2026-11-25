@@ -1,9 +1,26 @@
-# pnpm blocks dependencies' install scripts by default. esbuild's platform
-# package ships the binary tsx runs, so its script stays blocked.
+# pnpm blocks dependencies' install scripts by default, and each is kept
+# blocked. esbuild's platform package ships the binary tsx runs. The rest come
+# with the emulator harness: cpu-features and ssh2 would build an optional
+# native speed-up for a connection to Docker over SSH, which is not used, and
+# protobufjs's script only checks a version.
 allowBuilds:
+  cpu-features: false
   esbuild: false
+  protobufjs: false
+  ssh2: false
 
 # pnpm refuses a version published too recently. The SDK is first-party and is
 # pinned here the day it is released, so the pinned version alone is excluded.
 minimumReleaseAgeExclude:
   - '@ararat-network/sdk@0.4.0'
+
+# The emulator harness, a development dependency, pins three packages below
+# the releases that fix advisories against them. Each override takes the fixed
+# release its own range would otherwise refuse.
+overrides:
+  # @ledgerhq/hw-transport-http holds axios below 1.20.0.
+  axios: ^1.20.0
+  # dockerode 4 pins uuid ^10; 11.1.1 is the first fixed release that still ships CommonJS.
+  uuid: ^11.1.1
+  # @ledgerhq/hw-transport-http pins ws to exactly 8.18.3.
+  ws: ^8.21.0

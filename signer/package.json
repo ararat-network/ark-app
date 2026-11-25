@@ -7,7 +7,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ledger": "./ledger/index.ts"
   },
   "packageManager": "pnpm@12.5.1",
   "engines": {
@@ -17,18 +18,24 @@
     "fixtures:sync": "./scripts/sync-fixtures.sh",
     "fixtures:check": "./scripts/sync-fixtures.sh && ./scripts/check-clean.sh testdata/decoding",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "test": "node --import tsx --test 'src/**/*.test.ts' 'ledger/*.test.ts'",
+    "test:emulator": "./scripts/fetch-ledger-binaries.sh && node --import tsx --test --test-concurrency=1 'ledger/emulator/*.emu.ts'",
+    "test:emulator:record": "RECORD=1 pnpm test:emulator && ./scripts/check-clean.sh testdata/ledger",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write ."
   },
   "dependencies": {
     "@ararat-network/sdk": "0.4.0",
-    "@bufbuild/protobuf": "2.17.0"
+    "@bufbuild/protobuf": "2.17.0",
+    "@zondax/ledger-cosmos-js": "4.2.0",
+    "@zondax/ledger-js": "2.1.0",
+    "buffer": "6.0.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
     "@types/node": "26.6.6",
+    "@zondax/zemu": "0.69.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }

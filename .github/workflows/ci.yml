@@ -96,10 +96,31 @@ jobs:
       - run: pnpm check
       - run: pnpm test
 
+  signer-ledger:
+    name: "signer: Ledger adapter on the emulator"
+    needs: changes
+    if: needs.changes.outputs.signer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # Runs the Ark device app in Docker, from the binaries of a ledger-ark
+      # release checked against the SHA-256 pinned here, and fails unless the
+      # exchanges it records are the ones the unit tests replay.
+      - run: pnpm test:emulator:record
+
   ci:
     # The main ruleset requires this check by name.
     name: ci
-    needs: [changes, signer-lint, signer-fixtures, signer-test]
+    needs: [changes, signer-lint, signer-fixtures, signer-test, signer-ledger]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
