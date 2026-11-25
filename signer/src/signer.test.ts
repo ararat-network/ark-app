@@ -197,6 +197,85 @@ test("an expired document is refused before review, and after it when the member
   await behind.signer.grant(SIGNUP).signArbitrary(ok.signer, okData);
 });
 
+test("one review is shown at a time: a request waits for those asked before it, and for what they approved to be signed", async () => {
+  const good = memoryAdapter(keyOf(ok));
+  const events: string[] = [];
+  let showing = 0;
+  const answers: Decision[] = ["approved", "declined", "approved"];
+  const r = rig({
+    adapters: [
+      {
+        ...good,
+        sign: async (address, signBytes) => {
+          events.push("signing");
+          // A key that takes its time, as a Ledger does while the member reads its screen.
+          await new Promise((resolve) => setImmediate(resolve));
+          events.push("signed");
+          return good.sign(address, signBytes);
+        },
+      },
+    ],
+    answer: async () => {
+      assert.equal(++showing, 1, "another review is still up");
+      events.push("review");
+      await new Promise((resolve) => setImmediate(resolve));
+      showing--;
+      return answers.shift()!;
+    },
+  });
+  // Whoever asks: the turn is the signer's, not a caller's.
+  const signup = r.signer.grant(SIGNUP);
+  const again = r.signer.grant({ ...SIGNUP, caller: "signup again" });
+  const [first, second, third] = await Promise.allSettled([
+    signup.signArbitrary(ok.signer, okData),
+    again.signArbitrary(ok.signer, okData),
+    signup.signArbitrary(ok.signer, okData),
+  ]);
+  assert.equal(first.status === "fulfilled" && toBase64(first.value.signature), ok.signature);
+  assert.equal(second.status === "rejected" && (second.reason as SignerRefusal).kind, "declined", "a request that fails gives up its turn");
+  assert.equal(third.status === "fulfilled" && toBase64(third.value.signature), ok.signature);
+  assert.deepEqual(
+    r.reviews.map((review) => review.caller),
+    ["signup", "signup again", "signup"],
+    "in the order asked",
+  );
+  assert.deepEqual(events, ["review", "signing", "signed", "review", "review", "signing", "signed"]);
+});
+
+test("a request that waited is checked again when its turn comes: one that expired, or whose network was left, is not shown", async () => {
+  const expires = BigInt(ok.challenge!.expires!);
+  let clock = expires - 1n;
+  const slow = rig({
+    now: () => clock,
+    answer: async () => {
+      clock = expires;
+      return "approved";
+    },
+  });
+  const handle = slow.signer.grant(SIGNUP);
+  const [read, waited] = await Promise.allSettled([handle.signArbitrary(ok.signer, okData), handle.signArbitrary(ok.signer, okData)]);
+  assert.equal(read.status === "rejected" && (read.reason as SignerRefusal).kind, "expired");
+  assert.equal(waited.status === "rejected" && (waited.reason as SignerRefusal).kind, "expired");
+  assert.equal(slow.reviews.length, 1, "the document that expired while it waited is not shown");
+  assert.equal(slow.adapter.signed.length, 0);
+
+  const local = vector("challenge_localnet_ok");
+  const settings = { caller: "settings", capabilities: ["change_network"] } as const;
+  const switched = rig({
+    answer: async () => {
+      switched.signer.grant(settings).setNetwork({ chainId: local.challenge!.chain_id!, origin: local.challenge!.origin! });
+      return "approved";
+    },
+  });
+  const signup = switched.signer.grant(SIGNUP);
+  const [approved, behind] = await Promise.allSettled([signup.signArbitrary(ok.signer, okData), signup.signArbitrary(ok.signer, okData)]);
+  // What the member approved names its chain, and the approval stands.
+  assert.equal(approved.status === "fulfilled" && toBase64(approved.value.signature), ok.signature);
+  assert.equal(behind.status === "rejected" && (behind.reason as SignerRefusal).kind, "invalid");
+  assert.equal(switched.reviews.length, 1);
+  assert.equal(switched.adapter.signed.length, 1);
+});
+
 test("each capability is refused without its grant, and none implies another", async () => {
   const r = rig();
   const all: Capability[] = ["connect", "read_addresses", "sign", "change_network"];

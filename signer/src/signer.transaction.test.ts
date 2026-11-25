@@ -250,6 +250,47 @@ test("what is signed is fixed before review: a document changed while the member
   assert.ok(bytesEqual(aminoSignDocBytes(signedAmino.signDoc), beforeAmino), "the document handed back is the one signed");
 });
 
+test("transactions asked for at once are reviewed one at a time, in the order asked, and a network left while one waits refuses it", async () => {
+  let showing = 0;
+  const { handle, reviews, attachments, adapter } = rig({
+    answer: async () => {
+      assert.equal(++showing, 1, "another review is still up");
+      await new Promise((resolve) => setImmediate(resolve));
+      showing--;
+      return "approved";
+    },
+  });
+  const signed = await Promise.all([signTx(tx({ memo: "first" }), handle.attach("first")), signTx(tx({ memo: "second" }, "amino"), handle.attach("second"))]);
+  assert.deepEqual(attachments, ["first", "second"]);
+  assert.deepEqual(
+    reviews.map((review) => review.fields.find((field) => field.label === "transaction.memo")?.value),
+    [
+      { kind: "text", text: "first" },
+      { kind: "text", text: "second" },
+    ],
+  );
+  assert.ok(verifyMessage(signed[0].signature, adapter.signed[0]!, adapter.publicKey));
+  assert.ok(verifyMessage(signed[1].signature, adapter.signed[1]!, adapter.publicKey));
+
+  const key = memoryAdapter(MEMBER_KEY);
+  let shown = 0;
+  const signer = createSigner({
+    adapters: [key],
+    network: NETWORK,
+    present: async () => {
+      shown++;
+      signer.grant({ caller: "settings", capabilities: ["change_network"] }).setNetwork({ ...NETWORK, chainId: "ark-1" });
+      return "approved";
+    },
+  });
+  const wallet = signer.grant(WALLET);
+  const [approved, behind] = await Promise.allSettled([wallet.signDirect(MEMBER, directDoc()), wallet.signAmino(MEMBER, aminoDoc())]);
+  assert.equal(approved.status, "fulfilled", "what the member approved names its chain, and the approval stands");
+  assert.equal(behind.status === "rejected" && (behind.reason as SignerRefusal).kind, "invalid");
+  assert.equal(shown, 1);
+  assert.equal(key.signed.length, 1);
+});
+
 test("a signature the chain would refuse is not handed back", async () => {
   const good = memoryAdapter(MEMBER_KEY);
   const faults: [string, (signBytes: Uint8Array) => Uint8Array][] = [

@@ -1,9 +1,10 @@
 // The pipeline every signature goes through: consent, review, sign. A request
 // names its caller, the account, and the document; nothing is signed until
 // the member approves on the review screen, and one approval signs one
-// document. The pipeline ends at the signature: it reaches no node and no
-// service. It signs the signup protocol's two documents, and a transaction's
-// sign document in either encoding, as the SDK's Signer.
+// document. One review is shown at a time: a request waits its turn behind
+// those asked before it. The pipeline ends at the signature: it reaches no
+// node and no service. It signs the signup protocol's two documents, and a
+// transaction's sign document in either encoding, as the SDK's Signer.
 import {
   type AminoSignature,
   type AminoSignDoc,
@@ -48,7 +49,9 @@ export interface SignerOptions {
   /**
    * The client's review screen: shows the review and resolves once the member has approved or declined. The
    * attachment is what the caller attached to its request, if anything: the signer hands it over as it was given and
-   * never reads it, so the screen trusts none of it that the review does not bear out.
+   * never reads it, so the screen trusts none of it that the review does not bear out. It is asked for one review at a
+   * time, and not for the next until the one before is answered and what it approved is signed, so a screen that
+   * never answers holds every request behind it.
    */
   readonly present: (review: Review, attachment?: unknown) => Promise<Decision>;
   readonly network: SignerNetwork;
@@ -132,6 +135,17 @@ export function createSigner(options: SignerOptions): ArkSigner {
   const now = options.now ?? systemClock;
   let network: SignerNetwork = { chainId: options.network.chainId, origin: options.network.origin };
 
+  // One review is up at a time. A request waits its turn behind those asked before it, whoever asked them, and holds
+  // it until its signature is back, so the member is never shown two reviews at once and an approval is for the one
+  // document on the screen.
+  let turn: Promise<unknown> = Promise.resolve();
+  function inTurn<T>(run: () => Promise<T>): Promise<T> {
+    const mine = turn.then(run);
+    // A request that fails gives up its turn like any other.
+    turn = mine.catch(() => undefined);
+    return mine;
+  }
+
   /** An adapter's account, refused when its key does not derive to its address. */
   function checked(account: AdapterAccount): AdapterAccount {
     if (!derivesTo(account.publicKey, account.address)) throw new SignerRefusal("invalid", `the key adapter reported a key that is not ${account.address}'s`);
@@ -173,6 +187,16 @@ export function createSigner(options: SignerOptions): ArkSigner {
     }
   }
 
+  function requireChain(what: string, chainId: string): void {
+    if (chainId !== network.chainId) throw new SignerRefusal("invalid", `the ${what} is for ${chainId}, and the signer signs for ${network.chainId}`);
+  }
+
+  /** The document's chain is the signer's network, and its origin the membership service's on that network. */
+  function requireNetwork(doc: SignupDocument): void {
+    requireChain("document", doc.chain_id);
+    if (doc.origin !== network.origin) throw new SignerRefusal("invalid", `the document is from ${doc.origin}, not ${network.origin}`);
+  }
+
   /** The window's end alone: the service checks the whole window against its own clock, and a device clock a little behind must not refuse a fresh document. */
   function requireUnexpired(doc: SignupDocument): void {
     if (now() >= BigInt(doc.expires)) throw new SignerRefusal("expired", `the document expired at ${doc.expires}`);
@@ -183,9 +207,7 @@ export function createSigner(options: SignerOptions): ArkSigner {
     requireCapability(grant, "sign");
     const doc = parse(data);
     requireDocument(grant, doc.domain as Domain);
-    if (doc.chain_id !== network.chainId)
-      throw new SignerRefusal("invalid", `the document is for ${doc.chain_id}, and the signer signs for ${network.chainId}`);
-    if (doc.origin !== network.origin) throw new SignerRefusal("invalid", `the document is from ${doc.origin}, not ${network.origin}`);
+    requireNetwork(doc);
     requireUnexpired(doc);
     const { adapter, account } = await holder(address);
     if (!adapter.modes.includes("amino")) throw new SignerRefusal("invalid", "the key adapter does not sign amino, which a document is signed in");
@@ -194,15 +216,23 @@ export function createSigner(options: SignerOptions): ArkSigner {
     // nothing the caller or the review screen does while the member reads can change what the approval signs.
     const canonical = documentBytes(doc);
     const signBytes = adr036SignBytes(address, canonical);
-    await consent({ kind: "document", caller: grant.caller, account: address, fields: reviewDocument(doc) }, undefined);
-    // The member may have read for longer than the document had left.
-    requireUnexpired(doc);
+    const review: Review = { kind: "document", caller: grant.caller, account: address, fields: reviewDocument(doc) };
 
-    const signature = await fromAdapter("signing", () => adapter.sign(address, signBytes));
-    // The stateless rules of §7 on what the key returned, so a faulty adapter is caught here and not by the service.
-    const refused = checkSubmission({ data: canonical, signer: address, publicKey: account.publicKey, signature });
-    if (refused !== undefined) throw new SignerRefusal("invalid", `the key returned a proof the service would refuse: ${refused}`);
-    return { signature, publicKey: account.publicKey };
+    return inTurn(async () => {
+      // The request may have waited behind another: the network may have been switched meanwhile, and the document
+      // may have expired, and then it is not shown.
+      requireNetwork(doc);
+      requireUnexpired(doc);
+      await consent(review, undefined);
+      // The member may have read for longer than the document had left.
+      requireUnexpired(doc);
+
+      const signature = await fromAdapter("signing", () => adapter.sign(address, signBytes));
+      // The stateless rules of §7 on what the key returned, so a faulty adapter is caught here and not by the service.
+      const refused = checkSubmission({ data: canonical, signer: address, publicKey: account.publicKey, signature });
+      if (refused !== undefined) throw new SignerRefusal("invalid", `the key returned a proof the service would refuse: ${refused}`);
+      return { signature, publicKey: account.publicKey };
+    });
   }
 
   async function signTransaction<Doc>(
@@ -220,25 +250,30 @@ export function createSigner(options: SignerOptions): ArkSigner {
 
     // The bytes are fixed before the member sees the review, and the review is read from those bytes.
     const held = hold(account.publicKey);
-    if (held.chainId !== network.chainId)
-      throw new SignerRefusal("invalid", `the transaction is for ${held.chainId}, and the signer signs for ${network.chainId}`);
+    requireChain("transaction", held.chainId);
     let reviewed: ReturnType<typeof reviewTransaction>;
     try {
       reviewed = reviewTransaction(held.chainId, held.body, held.fee);
     } catch (err) {
       throw new SignerRefusal("invalid", "the transaction has no review", { cause: err });
     }
-    await consent({ kind: "transaction", caller: grant.caller, account: address, ...reviewed }, attachment);
+    const review: Review = { kind: "transaction", caller: grant.caller, account: address, ...reviewed };
 
-    const signature = await fromAdapter("signing", () => adapter.sign(address, held.signBytes));
-    // What the chain's signature check asks, so a faulty adapter is caught here and not by a node.
-    const good =
-      signature instanceof Uint8Array &&
-      signature.length === SIGNATURE_LENGTH &&
-      isLowS(signature) &&
-      verifyMessage(signature, held.signBytes, account.publicKey);
-    if (!good) throw new SignerRefusal("invalid", "the key returned a signature the chain would refuse");
-    return { signDoc: held.signDoc, signature };
+    return inTurn(async () => {
+      // The request may have waited behind another, and the network may have been switched meanwhile.
+      requireChain("transaction", held.chainId);
+      await consent(review, attachment);
+
+      const signature = await fromAdapter("signing", () => adapter.sign(address, held.signBytes));
+      // What the chain's signature check asks, so a faulty adapter is caught here and not by a node.
+      const good =
+        signature instanceof Uint8Array &&
+        signature.length === SIGNATURE_LENGTH &&
+        isLowS(signature) &&
+        verifyMessage(signature, held.signBytes, account.publicKey);
+      if (!good) throw new SignerRefusal("invalid", "the key returned a signature the chain would refuse");
+      return { signDoc: held.signDoc, signature };
+    });
   }
 
   return {
