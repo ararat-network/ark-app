@@ -80,13 +80,15 @@ broadcasting are the feature's, through the SDK.
   document's ceiling. A quote too old when the member approves, or one the chain refuses because a tax or a price
   moved, is prepared again and shown again.
 - **Several at once.** Actions that belong together are one transaction of several messages: one review, one
-  signature, run in order, all or nothing. Independent transactions from a device key are sent unordered, which the
-  chain allows: each expires at a timestamp in place of holding a sequence, so any number are in flight at once and
-  none can take another's place. The timestamp is set from the chain's latest block time, not the phone's clock, and
-  is different for each transaction. Unordered transactions run in no promised order, so what must run in order is
-  one transaction. A Ledger account sends ordered transactions alone, until its device app accepts an unordered
-  document; there nothing is signed a second time unseen, since the three steps sign once, and a member whose
-  transaction is refused for its sequence starts again from fresh figures.
+  signature, run in order, all or nothing. Independent transactions are sent unordered, which the chain allows: each
+  expires at a timestamp in place of holding a sequence, so any number are in flight at once and none can take
+  another's place. The timestamp is set from the chain's latest block time, not the phone's clock, and is different
+  for each transaction. Unordered transactions run in no promised order, so what must run in order is one
+  transaction. A Ledger account sends the same way, from device app 2.3.0, which the
+  [Ledger adapter](../signer/README.md#adapters) requires: the device shows that the transaction is unordered and
+  the time it is valid until, in UTC. Reading a review on the device takes longer, so the time has to leave room for
+  it. An unordered transaction has no sequence to be refused for; one whose time has passed is prepared again from
+  fresh figures and reviewed again, and nothing is signed a second time unseen, since the three steps sign once.
 - **Broadcast.** The feature broadcasts the signed transaction with the SDK's `broadcastTx`: sync, then wait for
   inclusion. The outcome keeps its class: an ante refusal, an execution failure, a module error, a timeout with the
   hash still pending, or a node that could not be reached. None is summarised away. Nothing is signed in this step,
@@ -167,7 +169,7 @@ The web client's release is in [its README](../web/README.md#release).
 | Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | React Native tooling              | React Native is settled ([stack](#stack)); Expo's module API with generated native projects, or bare React Native with committed projects and a Turbo Module | Expo's module API and generated projects                                                                            | The scaffold                                                              |
-| How long an unordered transaction is valid | The longest the chain allows; a shorter fixed window                                                                 | A short fixed window, once the chain's limit and what it charges an unordered transaction in gas are read from `ark` | Staking and send                                                          |
+| How long an unordered transaction is valid | The longest the chain allows; a shorter fixed window                                                                 | A short fixed window, long enough for a review read on a Ledger, once the chain's limit and what it charges an unordered transaction in gas are read from `ark` | Staking and send                                                          |
 
 ## What it must not become
 
