@@ -24,12 +24,14 @@ interface KeyAdapter {
   readonly modes: readonly ("direct" | "amino")[]; // a Ledger: amino alone
   accounts(): Promise<readonly { address: string; publicKey: Uint8Array }[]>;
   sign(address: string, signBytes: Uint8Array): Promise<Uint8Array>; // 64 bytes, r || s, low S
+  ready?(address: string): Promise<void>; // whether the key can sign now, asked before a review; a Ledger has it
 }
 ```
 
 The core builds the sign bytes, with the SDK's `directSignBytes` and `aminoSignDocBytes` and the signer's
 `adr036SignBytes`, and checks every signature an adapter returns before it leaves the package. No adapter decides what
-is signed.
+is signed. An adapter that cannot list its accounts is passed over, so one adapter's fault does not stop another's key
+from signing.
 
 **The review model**, what each client renders with its own components:
 
@@ -60,9 +62,10 @@ language, and the signer never imports `i18n`. A message is a summary of its fie
 type that has no summary, or a type URL and bytes for a type the signer does not have.
 
 **The pipeline.** `createSigner({ adapters, present, network })` returns the signer. `present(review, attachment)` is
-the client's review screen, resolving to approved or declined, and one approval signs one document. A feature holds a
-handle from `signer.grant({ caller, capabilities, documents, transactions })` and is refused past its grant. A handle
-is the SDK's `Signer`.
+the client's review screen, resolving to approved or declined, and one approval signs one document. It is asked for
+one review at a time: a request waits its turn behind those asked before it. A feature holds a handle from
+`signer.grant({ caller, capabilities, documents, transactions })` and is refused past its grant. A handle is the
+SDK's `Signer`.
 
 **Refusals.** One class, `SignerRefusal`, with a `kind` only where the app does something different: `declined`,
 `not_granted`, `expired`, `authentication_failed`, `locked_out`, `device_unavailable`, `device_locked`, `wrong_app`,
