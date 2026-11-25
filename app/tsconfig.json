@@ -6,5 +6,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "modules", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  "include": ["src", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

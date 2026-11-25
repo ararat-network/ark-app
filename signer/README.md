@@ -11,7 +11,8 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The signup documents and their proof | Built |
 | The pipeline: consent, permissions, and the review of a document | Built |
 | The review of a transaction, and the SDK's `Signer` | Built |
-| The device keystore, with backup and recovery | Designed |
+| The device keystore's core: the seed to the key and the key to a signature, in C, linked into the phone app | Built |
+| The device keystore's storage, authentication, and backup and recovery | Designed |
 | The Ledger adapter | Built |
 | The handoff protocol | Designed |
 
@@ -37,14 +38,18 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [ledger/](ledger/adapter.ts) | The Ledger adapter, exported as `@ararat-network/signer/ledger`: pairing a Ledger, and the key adapter for the account it was paired as. |
 | [ledger/emulator/](ledger/emulator/ledger.emu.ts) | The adapter's tests against the Ark device app on the emulator, with the ledger-ark release and the SHA-256 of each binary they load. |
 | [testdata/ledger/exchanges.json](testdata/ledger/exchanges.json) | Every command and answer of an emulator run, recorded. The adapter's unit tests replay them, and CI fails when a fresh run records anything else. |
+| [keystore/](keystore/index.ts) | The device keystore, exported as `@ararat-network/signer/keystore`: its TypeScript face, Swift in `ios/`, and Kotlin with its JNI entry in `android/`. Today it is the core and a check of it. |
+| [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the 24 words, the derivation, and signing, with the command line in `test/` that the host tests drive. |
+| [keystore/native/secp256k1/](keystore/native/secp256k1/COPYING) | libsecp256k1 at the release and commit in [SECP256K1_VERSION](keystore/native/SECP256K1_VERSION), copied by [scripts/sync-secp256k1.sh](scripts/sync-secp256k1.sh). CI fails when the copy is not that release's, file for file. |
+| [expo-module.config.json](expo-module.config.json) | Where Expo finds the keystore's native projects, so an app that depends on this package links them as it would any module's. |
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | The order the rest is built in. |
 
-As it will be laid out once the keystore is built:
+The three parts a client imports, one subpath each:
 
 ```text
 signer/
   src/        the core: consent, review, the sign-arbitrary call, the handoff protocol
-  keystore/   the device keystore adapter: its TypeScript entry, and ios/ and android/ for the native module
+  keystore/   the device keystore: its TypeScript entry, ios/ and android/ for the native module, native/ for its C
   ledger/     the Ledger adapter over a session of Ledger's Device Management Kit, which the client injects
 ```
 
@@ -311,7 +316,31 @@ be exported, so it has no backup: with registration permanent, it would need a w
 a new key, and there is none. The design keeps the software key, as wallets on this curve do. A member who wants the
 key off the phone uses a Ledger.
 
-This is designed and not built.
+Of this, the core is built and the rest is designed: [the core](#the-keystores-core) is what is, and storage,
+authentication, and backup are built on it next.
+
+### The keystore's core
+
+Everything that touches the seed or the key is one C source that both platforms compile
+([keystore/native/](keystore/native/ark_keystore.h)), with Swift and Kotlin passing bytes through. It takes a seed
+and never a key, and what held either is zeroised before a call returns.
+
+- **The seed is 256 bits of entropy as BIP-39 has it**, so it is also 24 words a member can write down. The key is
+  the one those words give at `m/44'/330'/0'/0/0`, with no passphrase.
+- **libsecp256k1** does the curve, from source kept in the tree at a pinned release and commit. It is compiled as
+  its three sources with no build system of its own, and its signatures are RFC 6979's with a low S.
+- **The hashes are written here**, SHA-256, SHA-512, HMAC, and PBKDF2, from their standards. A hash that took the
+  seed through Swift or Kotlin would leave copies of it where they cannot be zeroised.
+- **A check runs on the device.** The module's one call today, `selfCheck`, derives a key from a seed fixed in the C
+  and signs with it, and compares both with answers fixed beside it, which the SDK's TypeScript made. It shows that
+  a build of the core, on that processor, gives what the same seed gives everywhere.
+- **No call takes or returns a seed or a key.** The module's TypeScript ([keystore/index.ts](keystore/index.ts))
+  imports nothing of Expo's: the app looks the native module up and hands it in.
+
+The host tests build the core with the machine's C compiler and hold it against things that share no code with it:
+its hashes against Node's at every length around a block's edge, its words against BIP-39's own vectors, its keys and
+signatures against the SDK's for random seeds, and its signatures against the signup vectors and every one of the 85
+transaction fixtures, byte for byte.
 
 ### What the platforms document
 
@@ -327,7 +356,7 @@ that says nothing is documented means that: the behaviour is found by trying it,
 | No passcode | "No items can be stored in this class on devices without a passcode. Disabling the device passcode causes all items in this class to be deleted" ([accessibility](https://developer.apple.com/documentation/security/ksecattraccessiblewhenpasscodesetthisdeviceonly)). | "The key can only be generated if secure lock screen is set up", and it is invalidated for good when the lock screen is disabled ([KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)). |
 | An uninstall | Nothing is documented. | The app's internal storage is deleted ([security practices](https://developer.android.com/privacy-and-security/security-best-practices)), and its keys are cleared ([Keystore, in the platform's own docs](https://source.android.com/docs/security/features/keystore)). |
 | A backup, or a move to a new phone | Items of this class are not backed up and do not sync ([Keychain data protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)). | App files are copied unless they are in the no-backup directory ([Auto Backup](https://developer.android.com/identity/data/autobackup)); keys are not. |
-| The simulator and the emulator | Nothing is documented of a Secure Enclave on the Simulator. | Nothing is documented of a hardware-backed Keystore on the emulator; its fingerprint sensor is simulated ([extended controls](https://developer.android.com/studio/run/emulator-extended-controls)). |
+| The simulator and the emulator, tried, since nothing is documented | On the iOS 27.2 Simulator the Secure Enclave is present: a key with no authentication on it is made, and encrypts and decrypts. A key that needs biometrics, or biometrics or the passcode, is refused with -25293, with a face enrolled or not. | On the Android 17 emulator the Keystore is software: a key is made and encrypts and decrypts, at security level 0, and there is no StrongBox. With a PIN set, a key that takes biometrics or the PIN for each use is made; one that takes biometrics alone needs one enrolled. With no PIN, both are refused with `InvalidAlgorithmParameterException`. |
 
 **Web.** No software key in the first version: a browser cannot zeroise memory or attest itself, and a web origin is
 the phishing surface. The web client builds and reviews the transaction, then signs by handoff or a Ledger.
@@ -433,8 +462,12 @@ sign bytes as. None of Ledger's own packages is a dependency: the client that co
 it. Three packages in that tree are overridden to the releases that fix advisories against them
 ([pnpm-workspace.yaml](pnpm-workspace.yaml)), and none of it reaches a client.
 
-Once the keystore is built, libsecp256k1 at a pinned release joins them, built from source in the native module. A
-bump to any of them is reviewed by the signer's owners.
+The keystore adds no package. Its one dependency is libsecp256k1, at v0.8.0, kept in the tree as source and built
+by each platform's own build with the keystore's C; the release and its commit are pinned, and CI checks the copy
+against them. Expo and React Native are not dependencies: the keystore's TypeScript imports neither, and the app
+that links its native module brings them.
+
+A bump to any of these is reviewed by the signer's owners.
 
 ## Development
 
@@ -446,11 +479,16 @@ pnpm lint
 pnpm check
 pnpm test
 pnpm fixtures:check   # the decoding fixtures are those of ark at the tag in ARK_VERSION
+pnpm secp256k1:check  # the libsecp256k1 in the tree is the release in keystore/native/SECP256K1_VERSION
 pnpm test:emulator    # the Ledger adapter on the emulator; needs Docker
 ```
 
 `ARK_VERSION` is the `ark` tag the pinned SDK's types are generated from, and moves with the SDK's pin: change both,
 then `pnpm fixtures:sync`.
+
+`pnpm test` builds the keystore's C core with the machine's C compiler, `cc` unless `CC` names another, so it needs
+one. The keystore's Swift and Kotlin are built by the phone app's build and checked there
+([app](../app/README.md#development)).
 
 The emulator tests load the device app's binaries from the ledger-ark release named in
 [ledger/emulator/RELEASE](ledger/emulator/RELEASE), and refuse one whose SHA-256 is not the one in

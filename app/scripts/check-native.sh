@@ -1,20 +1,20 @@
 #!/bin/sh
-# Shows that an installed build called native code and got the right answer,
-# with nobody watching the screen.
+# Shows that an installed build holds the signer's keystore and that its C
+# core answers rightly there, with nobody watching the screen.
 #
 #   check-native.sh ios|android
 #
-# The app's first screen sends a probe to the native module, which writes one
-# line to the device's log when it answers. This starts the app on the booted
-# simulator or the running emulator and waits for that line. The line is
-# worked out from the probe by the same TypeScript the app runs, so it cannot
-# drift from what the app sends.
+# The app's first screen asks the keystore to check its core, which derives a
+# key from a fixed seed and signs with it, on the device, and compares both
+# with the answers fixed in the C. The native module writes the outcome to the
+# device's log. This starts the app on the booted simulator or the running
+# emulator and waits for the line that says the check passed.
 set -eu
 
 cd "$(dirname "$0")/.."
 platform=${1:?usage: check-native.sh ios|android}
 app_id=network.ararat.ark
-expected=$(node --import tsx -e 'import("./modules/native-check/src/probe.ts").then((m) => console.log(m.expectedLogLine()))')
+expected="ark-keystore self-check=1"
 echo "waiting for: $expected"
 
 case "$platform" in
@@ -23,7 +23,7 @@ case "$platform" in
     xcrun simctl launch booted "$app_id" >/dev/null
     read_log() {
       # The app's own lines alone: the log tool records its own command line, which holds the same words.
-      xcrun simctl spawn booted log show --last 3m --style compact --predicate 'process == "Ark" AND eventMessage CONTAINS "ark-native-check"' 2>/dev/null
+      xcrun simctl spawn booted log show --last 3m --style compact --predicate 'process == "Ark" AND eventMessage CONTAINS "ark-keystore"' 2>/dev/null
     }
     ;;
   android)
@@ -31,7 +31,7 @@ case "$platform" in
     adb shell am force-stop "$app_id"
     adb shell monkey -p "$app_id" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
     read_log() {
-      adb logcat -d -s ArkNativeCheck:I 2>/dev/null
+      adb logcat -d -s ArkKeystore:I 2>/dev/null
     }
     ;;
   *)
@@ -43,7 +43,7 @@ esac
 tries=0
 while [ "$tries" -lt 30 ]; do
   if read_log | grep -F -q "$expected"; then
-    echo "native code was called and answered rightly"
+    echo "the keystore's core is in the build and answers rightly"
     exit 0
   fi
   tries=$((tries + 1))

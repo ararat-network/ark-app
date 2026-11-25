@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["*.json", "src/**", "modules/**/*.ts", "modules/**/*.json", "!pnpm-lock.yaml"]
+    "includes": ["*.json", "*.js", "src/**", "!pnpm-lock.yaml"]
   },
   "formatter": {
     "enabled": true,

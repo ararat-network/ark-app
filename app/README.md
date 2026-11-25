@@ -11,13 +11,14 @@ is rewritten as what is once it is built.
 
 | Part | State |
 | --- | --- |
-| The scaffold: an Expo app that builds for iOS and Android and calls native code | Built |
+| The scaffold: an Expo app that builds for iOS and Android and links the signer's keystore | Built |
 | Everything a member does | Designed |
 
-The scaffold is the app with nothing in it yet. It has one screen, which calls a native module once and says whether
-native code answered, and it exists to show that the pieces every later step needs are in place: the native projects
-generated from [app.json](app.json), a module written in Swift and Kotlin over one C source, and CI that builds both
-platforms and checks the call was made. It holds no key and imports nothing of the signer's yet.
+The scaffold is the app with nothing in it yet. It has one screen, which asks the signer's
+[keystore](../signer/README.md#the-keystores-core) to check its core and says what it found, and it exists to show
+that the pieces every later step needs are in place: the native projects generated from [app.json](app.json), the
+signer taken by path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both
+platforms and checks the keystore answered there. It holds no key.
 
 ## Layout
 
@@ -26,8 +27,9 @@ platforms and checks the call was made. It holds no key and imports nothing of t
 | [app.json](app.json) | The app's config, which the native projects are generated from. `ios/` and `android/` are never committed. |
 | [src/app/](src/app/index.tsx) | The routes, in the `src` form Expo Router accepts. Today, the scaffold's one screen. |
 | [src/strings.ts](src/strings.ts) | The strings the app shows, as resources and never as text in a component, until the `i18n` package holds them. |
-| [modules/native-check/](modules/native-check/src/NativeCheckModule.ts) | The native module the scaffold calls: Swift in `ios/`, Kotlin and its JNI entry in `android/`, and the C both compile in `native/`. It stands where the keystore will and goes when the keystore arrives. |
-| [scripts/check-native.sh](scripts/check-native.sh) | Starts an installed build and waits for the line the native module writes to the device's log when it answers. |
+| [src/keystore-status.ts](src/keystore-status.ts) | The string for what the keystore's check found, apart from the screen so that it is tested with no device. |
+| [metro.config.js](metro.config.js) | The bundler told to watch the signer's directory, since the app takes it by path and not from a registry. |
+| [scripts/check-native.sh](scripts/check-native.sh) | Starts an installed build and waits for the line the keystore writes to the device's log when its check passes. |
 
 ## First-tranche scope
 
@@ -198,7 +200,7 @@ pnpm install
 pnpm lint
 pnpm check
 pnpm test
-pnpm check:ios        # builds, installs on the booted simulator, and checks native code answered
+pnpm check:ios        # builds, installs on the booted simulator, and checks the keystore answered there
 pnpm check:android    # the same on the running emulator
 ```
 
@@ -211,7 +213,7 @@ The native projects are generated at build time from [app.json](app.json) and th
 `android/`, which are ignored. What is built is fixed by that config and that pin, so a change to either is what a
 review reads; `pnpm prebuild` generates them afresh.
 
-Three things about the build that are not obvious:
+Four things about the build that are not obvious:
 
 - The app's identifier on both platforms is `network.ararat.ark`, in [app.json](app.json). It is a working choice:
   nothing has been published under it, and a store fixes an identifier for good at the first upload, so it is
@@ -220,8 +222,11 @@ Three things about the build that are not obvious:
   current biometric prompt and StrongBox begin, which the [keystore](../signer/README.md#keystore-per-platform) is
   written to. Google's figures of October 2026 put 2.4% of devices below it.
 - The Android build asks any `cmake` on the `PATH` for its version before it uses the Android SDK's own, so a
-  `cmake` there that fails to run stops the build. The native module names the CMake it builds with, and the build
+  `cmake` there that fails to run stops the build. The keystore names the CMake it builds with, and the build
   fetches that one from the SDK.
+- The native code the app builds is the signer's, not its own. The app depends on `@ararat-network/signer` by path,
+  and Expo links the keystore's native projects from that package as it would any module's
+  ([expo-module.config.json](../signer/expo-module.config.json)).
 
 The package stands alone: its manifest, lockfile, and tooling configuration are all here. The tests run on `node:test`
 through `tsx`, beside the code they test, and cover what needs no device.

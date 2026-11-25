@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.tgz
 ledger/emulator/binaries/
+
+# What the app's Android build leaves beside the keystore's native project
+keystore/android/.cxx/
+keystore/android/build/

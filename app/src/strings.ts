@@ -4,10 +4,10 @@
 // language; this screen is the scaffold's own and goes when signup arrives.
 export const strings = {
   "scaffold.title": "Ark",
-  "scaffold.native": "Native code",
-  "scaffold.native.ok": "Called, and it answered rightly",
-  "scaffold.native.mismatch": "Called, and it answered wrongly",
-  "scaffold.native.unavailable": "Not in this build",
+  "scaffold.keystore": "Keystore core",
+  "scaffold.keystore.ok": "Built in, and it answers rightly",
+  "scaffold.keystore.failed": "Built in, and it answers wrongly",
+  "scaffold.keystore.unavailable": "Not in this build",
 } as const;
 
 export type StringKey = keyof typeof strings;
