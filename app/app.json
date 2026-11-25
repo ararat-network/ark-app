@@ -5,7 +5,6 @@
     "version": "0.0.0",
     "scheme": "ark",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "network.ararat.ark",
       "supportsTablet": false
@@ -13,7 +12,17 @@
     "android": {
       "package": "network.ararat.ark"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 28
+          }
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }
