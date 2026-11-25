@@ -211,11 +211,14 @@ The native projects are generated at build time from [app.json](app.json) and th
 `android/`, which are ignored. What is built is fixed by that config and that pin, so a change to either is what a
 review reads; `pnpm prebuild` generates them afresh.
 
-Two things about the build that are not obvious:
+Three things about the build that are not obvious:
 
 - The app's identifier on both platforms is `network.ararat.ark`, in [app.json](app.json). It is a working choice:
   nothing has been published under it, and a store fixes an identifier for good at the first upload, so it is
   confirmed before then.
+- The oldest Android the app installs on is Android 9, set in [app.json](app.json). It is where the platform's
+  current biometric prompt and StrongBox begin, which the [keystore](../signer/README.md#keystore-per-platform) is
+  written to. Google's figures of October 2026 put 2.4% of devices below it.
 - The Android build asks any `cmake` on the `PATH` for its version before it uses the Android SDK's own, so a
   `cmake` there that fails to run stops the build. The native module names the CMake it builds with, and the build
   fetches that one from the SDK.

@@ -261,13 +261,29 @@ wraps it.
   `m/44'/330'/0'/0/0`, the path the Ledger and `arkd` use, so it can move ([backup and recovery](#backup-and-recovery)).
 - **At rest.** The seed encrypted under a hardware key directly, in one layer: an AES key in the Android Keystore, in
   StrongBox where the device has it, and the Secure Enclave's own hybrid scheme on iOS. The encrypted seed is a
-  Keychain item on iOS, which survives the app being uninstalled, and is in the app's storage on Android, which does
-  not.
-- **Authentication.** The hardware key is created with user authentication required, the OS biometric prompt with
-  the device passcode as fallback, and the member authenticates for each signature: there is no window in which the
-  key stays usable. The key is invalidated when a fingerprint or a face is enrolled, so someone who enrols their own
-  cannot sign, and the member restores from backup. A phone with no passcode, or no hardware-backed key store, is
-  refused a key.
+  Keychain item on iOS and a file in the app's no-backup directory on Android: Android copies an app's other files
+  to a new phone and the hardware key does not go with them, so a seed kept among them would arrive with nothing
+  that opens it.
+- **Authentication.** The hardware key needs user authentication for every use, and the member authenticates for
+  each signature: there is no window in which the key stays usable. On iOS that holds only while no authenticated
+  context is kept between signatures, so each decryption makes its own.
+- **Biometrics where the phone has them, and the passcode where it has not.** Neither platform gives both a passcode
+  fallback and a key that a newly enrolled fingerprint or face invalidates
+  ([what the platforms document](#what-the-platforms-document)), so the key is made one way or the other when it is
+  created. On a phone with strong biometrics enrolled it takes biometrics alone and is invalidated when one is
+  enrolled: a thief who has watched the passcode typed can neither sign nor enrol a finger of their own, and the
+  member restores from backup. On a phone without, it takes the passcode, so that a member is not left with no key
+  for want of a sensor or of fingerprints that register; that key outlasts an enrolment, and whoever has the
+  passcode can sign. The app tells the member which their key is.
+- **Android 9 and later.** The app's floor is Android 9, where the platform's current biometric prompt and StrongBox
+  begin, so the keystore has one path to write and test. A key that takes the passcode needs Android 11, so on
+  Android 9 and 10 a phone with no strong biometrics has no key, and a Ledger is what is left to its member.
+- **No passcode, no key.** Both platforms refuse to make such a key on a phone with no passcode, and both destroy it
+  when the passcode is removed. The member then restores from backup.
+- **An uninstall.** On Android it removes the file and the key. On iOS Apple documents nothing of what an uninstall
+  does to the Keychain: an item has outlasted one in practice, and Apple's engineers call that a detail that may
+  change. The keystore relies on neither outcome. At first launch, an item it finds that the hardware key still
+  opens is the member's key, and anything else is no key.
 - **In use.** Unwrapped only for a signing call, in the native module, which hashes, signs with libsecp256k1 (RFC 6979,
   low-S), zeroises the seed and the key, and returns the signature. The raw key is handled in C alone, beside
   libsecp256k1: Swift and Kotlin pass bytes through, since neither can be relied on to zeroise memory. JavaScript
@@ -283,9 +299,23 @@ be exported, so it has no backup: with registration permanent, it would need a w
 a new key, and there is none. The design keeps the software key, as wallets on this curve do. A member who wants the
 key off the phone uses a Ledger.
 
-This is designed and not built, and what it says of the two platforms is still to be read against their current
-documentation before the native code is written
-([build plan](docs/BUILD_PLAN.md#4-the-device-keystore-with-backup-a)).
+This is designed and not built.
+
+### What the platforms document
+
+What the design says of iOS and Android, read against Apple's and Google's documentation in November 2026. A cell
+that says nothing is documented means that: the behaviour is found by trying it, and is not relied on until it is.
+
+| | iOS | Android |
+| --- | --- | --- |
+| What the hardware encrypts | The Secure Enclave holds NIST P-256 keys alone and never gives one up. A key of its own decrypts through ECIES, with no limit on the length of what is encrypted ([Secure Enclave keys](https://developer.apple.com/documentation/security/protecting-keys-with-the-secure-enclave), [encryption](https://developer.apple.com/documentation/security/using-keys-for-encryption)). | The Keystore holds an AES key for GCM whose material an app cannot read. StrongBox takes AES at 128 and 256 bits, and a request it cannot meet throws, to be made again without it ([Keystore](https://developer.android.com/privacy-and-security/keystore)). |
+| Authentication for every use | With no context given, "a new context will be created, used once, and discarded"; one that is given and already authenticated signs with no prompt ([authentication context](https://developer.apple.com/documentation/security/ksecuseauthenticationcontext)). | A timeout of 0 means "user authentication must take place for every use of the key" ([KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)). |
+| A passcode fallback | `userPresence` is biometry or the passcode ([flags](https://developer.apple.com/documentation/security/secaccesscontrolcreateflags/userpresence)). | A key used once per authentication takes the device credential beside biometrics from Android 11 alone; before it, such a key is biometric only ([PromptInfo.Builder](https://developer.android.com/reference/androidx/biometric/BiometricPrompt.PromptInfo.Builder)). |
+| A newly enrolled fingerprint or face | `biometryCurrentSet`: "The item is invalidated if fingers are added or removed for Touch ID, or if the user re-enrolls for Face ID" ([flag](https://developer.apple.com/documentation/security/secaccesscontrolcreateflags/biometrycurrentset)). With the passcode joined to it by `or`, nothing is documented; by what `or` means, the passcode would still open the key. | A key is invalidated on enrolment unless it also takes the device credential: naming the credential exempts it ([KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)). |
+| No passcode | "No items can be stored in this class on devices without a passcode. Disabling the device passcode causes all items in this class to be deleted" ([accessibility](https://developer.apple.com/documentation/security/ksecattraccessiblewhenpasscodesetthisdeviceonly)). | "The key can only be generated if secure lock screen is set up", and it is invalidated for good when the lock screen is disabled ([KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)). |
+| An uninstall | Nothing is documented. | The app's internal storage is deleted ([security practices](https://developer.android.com/privacy-and-security/security-best-practices)), and its keys are cleared ([Keystore, in the platform's own docs](https://source.android.com/docs/security/features/keystore)). |
+| A backup, or a move to a new phone | Items of this class are not backed up and do not sync ([Keychain data protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)). | App files are copied unless they are in the no-backup directory ([Auto Backup](https://developer.android.com/identity/data/autobackup)); keys are not. |
+| The simulator and the emulator | Nothing is documented of a Secure Enclave on the Simulator. | Nothing is documented of a hardware-backed Keystore on the emulator; its fingerprint sensor is simulated ([extended controls](https://developer.android.com/studio/run/emulator-extended-controls)). |
 
 **Web.** No software key in the first version: a browser cannot zeroise memory or attest itself, and a web origin is
 the phishing surface. The web client builds and reviews the transaction, then signs by handoff or a Ledger.

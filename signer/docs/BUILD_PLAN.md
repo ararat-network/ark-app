@@ -86,20 +86,31 @@ module in a sibling package, and the app's bundler resolving that package's Type
 - The seed kept, all 256 bits, and not the derived key alone, so the 24 words of backup B can be shown later.
 - One layer of encryption at rest: the seed under the hardware key directly, an AES key in the Android Keystore and
   the Secure Enclave's own hybrid scheme on iOS. A second layer is added only if a reason for one is found.
-- The encrypted seed in a Keychain item on iOS, which survives the app being uninstalled, and in the app's storage on
-  Android, which does not. What a reinstall finds on each is written in the README.
-- The member authenticates for each signature, with no window in which the key stays usable.
-- The hardware key invalidated when a fingerprint or a face is enrolled, so someone who enrols their own cannot sign,
-  and the member restores from backup.
-- A phone with no passcode, or no hardware-backed key store, refused a key, with a refusal the app can explain.
+- The encrypted seed in a Keychain item on iOS and in the app's no-backup directory on Android. An uninstall removes
+  it on Android; on iOS nothing is documented, so the keystore relies on neither outcome.
+- The member authenticates for each signature, with no window in which the key stays usable. On iOS each decryption
+  makes its own authentication context, since one kept and already authenticated would sign with no prompt.
+- Two kinds of key, chosen when the key is made, since no platform gives both a passcode fallback and a key that
+  enrolment invalidates. Where the phone has strong biometrics enrolled, the key takes biometrics alone and a newly
+  enrolled fingerprint or face invalidates it. Where it has not, the key takes the passcode and outlasts an
+  enrolment. The module reports which it made, so the app can tell the member.
+- Android from 9, the floor the app's config sets. The passcode kind of key is made from Android 11, the first that
+  lets a key used once per authentication take the passcode; on Android 9 and 10 a phone with no strong biometrics
+  is refused a key.
+- A phone with no passcode, or no hardware-backed key store, refused a key, with a refusal the app can explain. Both
+  platforms destroy the key when the passcode is removed, and the member restores from backup.
 - The biometric prompt's text passed in from JavaScript, so it is a string resource like any other.
 - Backup option A in the same module. Its restore is also how a test loads a known key, so a release build holds no
   import made for tests. Backup B, the mnemonic, is built with the staking flow that offers it.
 
-Before the native code is written, what the two platforms do is read against their current documentation: which
-changes invalidate a hardware key, what a key that needs authentication allows as a fallback, what the Secure Enclave
-and the Android Keystore encrypt directly, and what an uninstall removes. The bullets above were decided from
-knowledge of the two key stores and not from that reading, and one that rested on something untrue is decided again.
+What the two platforms do has been read against their documentation
+([what the platforms document](../README.md#what-the-platforms-document)). It bore out one layer of encryption,
+authentication for each signature, and no key without a passcode. It corrected two things, written above: where the
+seed is kept on Android, and that iOS promises nothing of an uninstall. And it overturned one: a passcode fallback
+and a key that enrolment invalidates were taken together, and neither platform gives both, so the key is now one
+kind or the other. Two things the
+documentation does not say are found by trying them, before the code relies on either: whether the Simulator has a
+Secure Enclave, and whether the emulator has a hardware-backed Keystore.
 
 Done: wrap, unwrap, and zeroisation are tested on both platforms; with the fixture keys restored the module's
 signatures equal the signup vectors' and the transaction fixtures', byte for byte; and a changed biometric and a
@@ -126,6 +137,6 @@ origins from the text around them is not a first-release concern.
 ## Decisions
 
 None is open. Those taken are written where they bear: the Ledger JS dependency in the
-[README's adapters](../README.md#adapters), and React Native tooling, backup and recovery, and the six of the
-keystore's own in [stage 4](#4-the-device-keystore-with-backup-a) and in the README's
+[README's adapters](../README.md#adapters), and React Native tooling, backup and recovery, and the keystore's own in
+[stage 4](#4-the-device-keystore-with-backup-a) and in the README's
 [keystore per platform](../README.md#keystore-per-platform) and [backup and recovery](../README.md#backup-and-recovery).
