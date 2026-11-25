@@ -30,6 +30,7 @@ import {
   typed,
   type UnsignedTx,
   utf8Decode,
+  utf8Encode,
   verifyMessage,
 } from "@ararat-network/sdk";
 import { MsgExecSchema } from "@ararat-network/sdk/gen/cosmos/authz/v1beta1/tx_pb.js";
@@ -43,9 +44,11 @@ import { type RefusalKind, SignerRefusal } from "./refusal.ts";
 import type { Review } from "./review/model.ts";
 import { ReviewError } from "./review/transaction.ts";
 import { createSigner, type Decision, type SignerHandle } from "./signer.ts";
-import { SIGNUP_DOMAIN } from "./signup/document.ts";
+import { SIGNUP_DOMAIN, VOUCH_DOMAIN } from "./signup/document.ts";
+import { adr036SignBytes } from "./signup/signbytes.ts";
 import { fixtureKey, txFixture, txFixtures, unsignedTx } from "./testing/fixtures.ts";
 import { type MemoryAdapter, memoryAdapter } from "./testing/memory_adapter.ts";
+import { signupVectors } from "./testing/vectors.ts";
 import { holdAmino } from "./transaction.ts";
 
 const CHAIN = "ark-fixtures-1";
@@ -319,6 +322,26 @@ test("an amino document that cannot be read whole is refused before review", asy
   for (const [name, bad] of refused) await refusal(handle.signAmino(MEMBER, bad), "invalid", name);
   await refusal(handle.signAmino(MEMBER, { msgs: 1n } as unknown as AminoSignDoc), "invalid", "no document at all");
   assert.equal(reviews.length + adapter.signed.length, 0);
+});
+
+test("a signup or vouch document is not signed as a transaction: its ADR-036 sign document is refused before review", async () => {
+  // Signed as a transaction, a document would pass none of what the sign-arbitrary call asks of it: a grant of its
+  // domain, the membership service's origin, and an expiry still ahead.
+  const grants: Grant[] = [WALLET, { ...WALLET, documents: [SIGNUP_DOMAIN, VOUCH_DOMAIN] }];
+  for (const name of ["challenge_ok", "vouch_ok"]) {
+    const data = utf8Encode(signupVectors().vectors.find((v) => v.name === name)!.data);
+    const doc = JSON.parse(utf8Decode(adr036SignBytes(MEMBER, data))) as AminoSignDoc;
+    assert.equal(doc.chain_id, "", "an ADR-036 sign document names no chain");
+    // On a signer whose network named no chain either, the chain would not be what refuses it.
+    for (const chainId of [CHAIN, ""]) {
+      for (const grant of grants) {
+        const { handle, adapter, reviews } = rig({ grant, chainId });
+        await refusal(handle.signAmino(MEMBER, doc), "invalid", `${name} on "${chainId}"`);
+        await refusal(handle.attach({}).signAmino(MEMBER, doc), "invalid", `${name} on "${chainId}", with an attachment`);
+        assert.equal(reviews.length + adapter.signed.length, 0, name);
+      }
+    }
+  }
 });
 
 test("an amino document that does not encode back to itself is refused, so a faulty decoder stops a signature", () => {
