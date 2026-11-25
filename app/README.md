@@ -111,7 +111,10 @@ WebAssembly on the web, or in Kotlin Multiplatform, would keep the key and the s
 smaller supply chain and no React Native release cadence to follow. It would cost two native user interfaces beside the
 web's, so the screens and the strings written three times; bindings per platform for the core; three review surfaces
 for the one-meaning rule; and a smaller pool of contributors. The design takes React Native and draws the native
-boundary around the key; which React Native tooling is the decision left ([decisions](#decisions)).
+boundary around the key. The tooling is Expo's module API with generated projects. Bare React Native, with the
+native projects committed and the keystore a Turbo Module, was the other choice: every build setting would be in the
+tree to review, at the cost of keeping the projects by hand through each React Native release. With the generated
+projects, what is built is fixed by the pinned Expo SDK and the app's config, which is what a review reads.
 
 ## Security
 
@@ -168,7 +171,6 @@ The web client's release is in [its README](../web/README.md#release).
 
 | Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| React Native tooling              | React Native is settled ([stack](#stack)); Expo's module API with generated native projects, or bare React Native with committed projects and a Turbo Module | Expo's module API and generated projects                                                                            | The scaffold                                                              |
 | How long an unordered transaction is valid | The longest the chain allows; a shorter fixed window                                                                 | A short fixed window, long enough for a review read on a Ledger, once the chain's limit and what it charges an unordered transaction in gas are read from `ark` | Staking and send                                                          |
 
 ## What it must not become
