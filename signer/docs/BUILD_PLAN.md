@@ -3,7 +3,8 @@
 How the signer is built out from the signup documents it holds today to the done-line of the repository's first build
 step. The [README](../README.md) is the design; this is the order, what each stage delivers, and the decisions still
 open. A stage is one pull request that passes CI on its own and moves a row of the README's status table from Designed
-to Built. A stage's section is removed here once it is built, since the README then says what is.
+to Built. A stage's section is removed here once it is built, since the README then says what is: stages 1 and 2, the
+pipeline with the review of a document and the review of a transaction with the SDK's `Signer`, are built.
 
 ## Contents
 
@@ -32,23 +33,35 @@ is signed.
 **The review model**, what each client renders with its own components:
 
 ```ts
-interface Review { kind: "document"; caller: string; account: string; fields: readonly ReviewField[] }
+type Review =
+  | { kind: "document"; caller: string; account: string; fields: readonly ReviewField[] }
+  | {
+      kind: "transaction";
+      caller: string;
+      account: string;
+      messages: readonly MessageReview[];
+      fields: readonly ReviewField[];
+    };
 interface ReviewField { label: ReviewLabel; value: ReviewValue }
 type ReviewValue =
   | { kind: "origin"; origin: string }
   | { kind: "choice"; choice: ReviewChoice }
   | { kind: "text"; text: string }
-  | { kind: "time"; unixSeconds: string };
+  | { kind: "time"; unixSeconds: string }
+  | { kind: "address"; address: string }
+  | { kind: "amount"; denom: string; amount: string }
+  | { kind: "number"; number: string };
 ```
 
-A label and a choice are keys, never text, and a value is typed and raw, never formatted. `REVIEW_LABELS` and
-`REVIEW_CHOICES` are exported, so `i18n`'s check can require a string for each in every language, and the signer never
-imports `i18n`. Transaction review adds `kind: "transaction"`, and amounts, addresses, and the chain's JSON view as
-values.
+A label and a choice are keys, never text, and a value is typed and raw, never formatted. `REVIEW_LABELS`,
+`REVIEW_CHOICES`, and `REVIEW_MESSAGES` are exported, so `i18n`'s check can require a string for each in every
+language, and the signer never imports `i18n`. A message is a summary of its fields, or the chain's JSON view of a
+type that has no summary, or a type URL and bytes for a type the signer does not have.
 
-**The pipeline.** `createSigner({ adapters, present, network })` returns the signer. `present(review)` is the client's
-review screen, resolving to approved or declined, and one approval signs one document. A feature holds a handle from
-`signer.grant({ caller, capabilities, documents })` and is refused past its grant.
+**The pipeline.** `createSigner({ adapters, present, network })` returns the signer. `present(review, attachment)` is
+the client's review screen, resolving to approved or declined, and one approval signs one document. A feature holds a
+handle from `signer.grant({ caller, capabilities, documents, transactions })` and is refused past its grant. A handle
+is the SDK's `Signer`.
 
 **Refusals.** One class, `SignerRefusal`, with a `kind` only where the app does something different: `declined`,
 `not_granted`, `expired`, `authentication_failed`, `locked_out`, `device_unavailable`, `wrong_app`,
@@ -57,88 +70,33 @@ a member never reads; what a member reads is a string resource the app chooses b
 
 ## Stages
 
-### 1. The core pipeline and document review
-
-TypeScript alone, in `src/`, tested with a key in memory. No dependency is added.
-
-- The key adapter, the refusal, and the review model, as above.
-- A signup or vouch document as review fields: the origin, which of the two it is, the chain ID, the expiry, and for a
-  vouch the admission.
-- The four capabilities of [permissions](../README.md#permissions), held per caller, with the document domains a
-  caller may ask a signature for named in its grant, so a vouch is signed from the vouch flow alone.
-- The pipeline, and `signArbitrary` through it: a document for another chain or from another origin is refused, an
-  expired one is refused before review and again after approval, and what the key returns is checked under the
-  stateless rules before it is handed back.
-
-Done: the signup vectors are reproduced through the pipeline; a decline reaches no key; one approval yields one
-signature; and each refusal above has a test.
-
-### 2. Transaction review
-
-Waits on nothing: it is built on the SDK as pinned, 0.4.0, which has the amino decoder and prepares, signs, and
-broadcasts a transaction as three steps.
-
-- The SDK's `Signer`: `accounts`, `signDirect`, and `signAmino`, implemented as the interface stands, with nothing
-  added to it. A feature hands its handle on the signer to the SDK's `signTx`, which builds the document and asks the
-  signer for the signature, as every Cosmos client does with its wallet. Direct is refused for an adapter that signs
-  amino alone.
-- The decoding fixtures synced here from the ark tag the pinned SDK names, with a check in CI that the copy is that
-  tag's, since the SDK's npm package does not carry them. They are 85 transactions in `ark`'s
-  `tests/fixtures/testdata/decoding`, each with its direct and its amino document, a `fee` object, and a
-  deterministic signature.
-- Review over the SDK's `decodeMessage`, the same for both encodings: a summary for each of the four messages a
-  member signs in the first tranche, `MsgDelegate`, gov v1 `MsgVote`, `MsgSend`, and `MsgWithdrawDelegatorReward`;
-  any other known type shown as its type URL and the chain's JSON view, labelled as not summarised; an unknown type
-  URL shown as unknown; a contract payload shown as unverified. `MsgSetPayee` is later scope, and a member signs
-  nothing to receive a payment.
-- An amino document decoded to its body and fee by the SDK's `decodeAminoSignDoc`, the reverse of its amino encoder
-  and driven by the same schemas, so one implementation reads every message type. The signer encodes what was decoded
-  with the SDK's `makeAminoSignDoc` and refuses unless the bytes are those it was asked to sign, so a fault in the
-  decoder stops a signature and never shows a member something other than what is signed. The body is then reviewed
-  as a direct document's is: one reading, with no second reader to keep in step.
-- The fee section: the declared fee, shown as the ceiling it is, each denomination apart. A signature commits to the
-  messages and the ceiling and to nothing else, so those are what the signer reviews. How the ceiling divides into
-  tax, gas, and tip is the chain's figure, in the SDK's fee quote, which the signer never reads.
-- An attachment: a value a feature attaches to its request, handed to `present` beside the review and never read by
-  the signer. It is how a fee quote reaches the review screen. With every denomination open the ceiling is not what
-  is charged, so the division is shown where the member approves, and it is the division of the fee that is signed:
-  the feature prices the transaction with `prepareTx`, which signs nothing, attaches the quote, and hands the
-  transaction that was prepared to `signTx`, which signs it as it stands and asks the node nothing. The screen shows
-  the quote only when its declared fee is the document's ceiling
-  ([fees and broadcast](../../app/README.md#fees-and-broadcast)). This is built for every denomination from the
-  start, not for the first tranche's NOAH alone.
-- An unordered document shown with the time it is valid until. Independent transactions are sent unordered, from a
-  device key and from a Ledger alike, which the chain allows: each expires at a timestamp in place of holding a
-  sequence, so none can take another's and nothing is signed twice. Actions that belong together are one transaction
-  of several messages: one review and one signature.
-- A document for a chain other than the signer's network, or naming an account the signer does not hold, is refused.
-
-Done: every transaction fixture signed through the pipeline, in each mode, reproduces its signature and its bytes;
-the direct and the amino document of every fixture give the same review model; an amino document that does not encode
-back to itself is refused; the fee section equals the fixture's declared fee; the four summaries and the
-multi-message fixture have golden review models; an attachment reaches the review screen unchanged; and an unknown
-type and an unordered document each have a test.
-
 ### 3. The Ledger adapter
 
 `ledger/`, exported as `@ararat-network/signer/ledger`. TypeScript over an injected transport, so it needs no app.
-It waits on two things from ledger-ark:
+It waits on one thing from ledger-ark: a release that carries the device binaries, for the emulator job here. The
+release workflow now attaches the emulator's binary for each device, `ark_zemu_<model>_v<version>.elf`, with a
+checksum for every file, but no release has been cut since: 2.3.0 carries installers alone. The job pins the release
+tag and each file's SHA-256. The adapter's unit tests wait on nothing.
 
-- An emulator test that a `sign/MsgSignData` document, whose chain ID is empty, parses and displays. An account on a
-  Ledger signs up and vouches with it, and the [signup protocol](SIGNUP_PROTOCOL.md#5-signature) says the device shows
-  the document, but nothing in ledger-ark's source, documents, or emulator tests covers one.
-- Device binaries attached to its releases with their checksums, for the emulator job here. Its releases, 2.3.0
-  among them, carry installers alone.
+It no longer waits on signup. ledger-ark's emulator tests sign a signup challenge and a vouch, the protocol's own
+vectors, on every device and with no change to the device app
+([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). What
+they show bears on the adapter:
+
+- The device shows `data` as base64 and does not decode it, so the origin, which document it is, and the expiry are
+  read in the app's review alone. A challenge and a vouch look alike on the device.
+- The device signs a document naming any address as its signer. The core builds the sign bytes for the account whose
+  key signs, and that is what keeps a Ledger from signing for another address.
+- The review is the same in normal and expert mode, and is titled as a transaction.
 
 It no longer waits on the device app for unordered transactions. From 2.3.0 the app signs an unordered transaction's
 amino document and shows its expiry
 ([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)),
 so a Ledger account sends as a device key does.
 
-The Ledger JS package is Zondax's `@zondax/ledger-cosmos-js` as published, and needs no fork: ledger-ark forked the
-device app alone, and its emulator tests drive that app with the package unmodified. It is CommonJS and returns DER
-signatures with nothing said of low S. Whether the adapter uses it or a small client of its own is
-[decision a](#decisions), due here.
+The adapter is built on Zondax's `@zondax/ledger-cosmos-js` as published, at an exact version, and it alone touches
+the package. No fork is needed: ledger-ark forked the device app alone, and its emulator tests drive that app with
+the package unmodified. It is CommonJS and returns DER signatures with nothing said of low S.
 
 - Derives at `m/44'/330'/0'/0/0` with the `ark` prefix, confirms the address on the device at first use, and signs in
   amino alone.
@@ -186,19 +144,18 @@ of the SDK's localnet smoke workflow.
 
 ### Order, and what is outside it
 
-Stage 1, then 2. Stages 3 and 4 are independent of each other after that, and the Ledger is recommended first: it has
-no native code, needs no app scaffold and no open decision of the app's, and it holds the adapter interface against a
-second, stricter implementation before Swift and Kotlin are written to it.
+Stages 3 and 4 are independent of each other, and the Ledger is recommended first: it has no native code, needs no
+app scaffold and no open decision of the app's, and it holds the adapter interface against a second, stricter
+implementation before Swift and Kotlin are written to it.
 
 The handoff protocol waits for the web client, as the repository's build order has it. `i18n` is a package of its own:
 its first form, the English strings, the check against `REVIEW_LABELS` and the refusal kinds, and a pseudo-locale, can
-land any time after stage 1. The first release's languages include no right-to-left script, so isolating addresses and
+land at any time. The first release's languages include no right-to-left script, so isolating addresses and
 origins from the text around them is not a first-release concern.
 
 ## Decisions
 
 | | Decision | Options | Recommendation | Blocks |
 | --- | --- | --- | --- | --- |
-| a | The Ledger JS dependency | Zondax's package at an exact version, touched by the adapter alone; or a small client of the device's commands written here against ledger-ark's `APDUSPEC.md`, with no CommonJS, `buffer`, or `ripemd160` | Zondax's package | Stage 3 |
 | b | React Native tooling | As in the [phone app's decisions](../../app/README.md#decisions) | Expo's module API and generated projects | Stage 4 |
 | c | Backup and recovery | As in [backup and recovery](../README.md#backup-and-recovery) | Both: the blob at signup, the mnemonic before the first stake | Stage 4 |

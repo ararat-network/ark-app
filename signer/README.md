@@ -10,7 +10,7 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | --- | --- |
 | The signup documents and their proof | Built |
 | The pipeline: consent, permissions, and the review of a document | Built |
-| The review of a transaction, and the SDK's `Signer` | Designed |
+| The review of a transaction, and the SDK's `Signer` | Built |
 | The device keystore, with backup and recovery | Designed |
 | The Ledger adapter | Designed |
 | The handoff protocol | Designed |
@@ -27,9 +27,11 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [src/signup/document.ts](src/signup/document.ts) | The document of §4: its grammar, its canonical bytes, and a parser that refuses anything not in canonical encoding. |
 | [src/signup/signbytes.ts](src/signup/signbytes.ts) | The ADR-036 sign bytes of §5. |
 | [src/signup/proof.ts](src/signup/proof.ts) | The submission of §6, signing a document through whatever holds the key, and the stateless rules 1 to 4 of §7. |
-| [src/signer.ts](src/signer.ts) | The pipeline: consent, review, and signing, and the sign-arbitrary call through it. |
+| [testdata/decoding/](testdata/decoding/) | `ark`'s decoding fixtures at the tag in [ARK_VERSION](ARK_VERSION), the tag the pinned SDK's types are generated from. Every transaction among them is signed through the pipeline in both encodings. |
+| [src/signer.ts](src/signer.ts) | The pipeline: consent, review, and signing, with the SDK's `Signer` and the sign-arbitrary call through it. |
+| [src/transaction.ts](src/transaction.ts) | A transaction's sign document as the signer holds it, in either encoding: its own copy, the bytes signed, and the body and fee those bytes describe. |
 | [src/permissions.ts](src/permissions.ts) | The capabilities, and the grant a caller holds. |
-| [src/review/](src/review/model.ts) | The review model a client renders, and a document as its fields. |
+| [src/review/](src/review/model.ts) | The review model a client renders, a document as its fields, and a transaction as its messages and its fields. |
 | [src/refusal.ts](src/refusal.ts) | Why the signer did not sign, by kind. |
 | [src/adapter.ts](src/adapter.ts) | The interface whatever holds a key implements. |
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | The order the rest is built in. |
@@ -79,16 +81,23 @@ Requesting the challenge, the session, device attestation, and submitting the pr
 
 `createSigner` takes the key adapters, the client's review screen, and the network, and `grant` hands a caller a
 handle on the signer limited to its [permissions](#permissions). Feature code reaches the signer through a handle,
-never through an adapter. A handle has three calls today:
+never through an adapter. A handle is the SDK's `Signer` as that interface stands, with nothing added to it: a
+feature hands its handle to the SDK's `signTx`, which builds the document and asks for the signature, as every Cosmos
+client does with its wallet. Its calls:
 
-- `accounts`, which reports the signer's accounts as the SDK's `Signer` does;
+- `accounts`, which reports the signer's accounts as the SDK's `Signer` does, each with the encodings its key signs
+  a transaction in, so a feature builds a Ledger account's transactions in amino;
+- `signDirect` and `signAmino`, the SDK's two, each for a transaction's sign document in one encoding
+  ([the review of a transaction](#the-review-of-a-transaction));
+- `attach`, which gives the handle for one request, with a value the review screen is handed beside the review. It is
+  how a fee quote reaches the screen: `signTx(prepared.tx, handle.attach(prepared.quote))`. The signer never reads the
+  value, and what `attach` returns signs one document and then refuses, so no quote is shown beside a second;
 - `signArbitrary`, a call of the signer's own for the signup protocol's documents
   ([the sign-arbitrary call](#the-sign-arbitrary-call)), which the SDK's interface does not have;
 - `setNetwork`, which switches the network the signer signs for.
 
-Designed: a handle implements the rest of the SDK's `Signer`, `signDirect` and `signAmino`. The SDK builds every
-transaction document and the signer builds the ADR-036 sign bytes; the signer signs both, and nothing else sees the
-key.
+The SDK builds every transaction document and the signer builds the ADR-036 sign bytes; the signer signs both, and
+nothing else sees the key.
 
 ## The core
 
@@ -98,43 +107,76 @@ Shared by every client and every adapter, as a pipeline:
    on the review screen, and one approval signs one document. The review screen is the client's, passed to the signer
    as `present`: a decline, an answer that is not an approval, and a screen that fails each sign nothing.
 2. **Review.** A document of the signup protocol is parsed and shown with its origin, which of the two documents it
-   is, its chain ID, and its expiry ([the sign-arbitrary call](#the-sign-arbitrary-call)). What is signed is fixed
-   before the review is shown, so nothing done while the member reads changes what the approval signs.
+   is, its chain ID, and its expiry ([the sign-arbitrary call](#the-sign-arbitrary-call)). A transaction is shown as
+   its messages and what it carries beside them ([the review of a transaction](#the-review-of-a-transaction)). What
+   is signed is fixed before the review is shown, so nothing done while the member reads changes what the approval
+   signs.
 3. **Sign.** Through the adapter that holds the account. What the key returns is checked before the signature goes
    back to the caller.
-
-Designed, the review of a transaction: built from the SDK decoder, which ark's decoding fixtures test: each message
-rendered by type; an unknown type URL shown as unknown, with the URL; a contract payload shown as unverified; and the
-intended amount and the fee ceiling shown apart. Both are read from the document, and they are all the signer shows
-of a fee: a signature commits to the messages and the ceiling and to nothing else. The tax, the gas, and the tip the
-ceiling divides into are the chain's figures, in the SDK's fee quote, which the signer never reads. A feature attaches
-the quote to its request, and the signer hands it to the review screen beside the review; showing its figures apart at
-the quote's height, as the direction's
-[fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks, is the review
-screen's ([fees and broadcast](../app/README.md#fees-and-broadcast)). An unordered transaction is shown with the time
-it is valid until.
 
 The pipeline ends at the signature. The signer reaches no node and no service: it reviews and signs the document it
 is given, and choosing a fee and broadcasting are the caller's, through the SDK. Their rules are the phone app's
 ([fees and broadcast](../app/README.md#fees-and-broadcast)).
 
 Every step is TypeScript, shared by the phone and the web. Review produces a model
-([src/review/model.ts](src/review/model.ts)): the fields in the order they are shown, each a label and a value. A
-label is a key, never text, and a value is typed and raw, never formatted, so each client renders the model with its
-own components and its language's strings, and the two clients share one reading and no components. `REVIEW_LABELS`
-and `REVIEW_CHOICES` list every key, for the check in [`i18n`](../i18n/README.md) that every language carries every
+([src/review/model.ts](src/review/model.ts)): the fields in the order they are shown, each a label and a value, and
+for a transaction its messages before them. A label is a key, never text, and a value is typed and raw, never
+formatted, so each client renders the model with its own components and its language's strings, and the two clients
+share one reading and no components. `REVIEW_LABELS`, `REVIEW_CHOICES`, and `REVIEW_MESSAGES` list every key, for the
+check in [`i18n`](../i18n/README.md) that every language carries every
 string; the signer does not depend on `i18n`. The handoff protocol of [keystore per platform](#keystore-per-platform)
 is the core's too, since both ends of it must share one implementation.
+
+### The review of a transaction
+
+Built on the SDK's decoder, which `ark`'s decoding fixtures test, from the body and the fee the sign document
+describes. A direct document and an amino one of the same transaction give the same review.
+
+- **Each message, in the order they run.** The four a member signs in the first tranche, a delegation, a vote, a
+  send, and a withdrawal of rewards, have a summary, which states every member the message carries: one a summary
+  cannot state whole is not summarised in part. Any other type the chain has is shown as its type URL and the chain's
+  JSON view, marked as not summarised. A type the signer does not have is shown as unknown, with its type URL and its
+  bytes.
+- **A contract payload, marked unverified.** A message that holds one, in itself or in a message it carries, as a
+  proposal carries the messages it would run, is marked. The payload is in the JSON view as it will be sent; what
+  the contract does with it is not something the signer can read.
+- **What the transaction carries beside its messages.** The chain ID; the memo; the fee as the ceiling it is, each
+  denomination apart and in the order declared; the gas limit; a fee payer or granter; a timeout height; and for an
+  unordered transaction, that it is unordered and the time it is valid until.
+
+The ceiling is all the signer shows of a fee: a signature commits to the messages and the ceiling and to nothing
+else. The tax, the gas, and the tip the ceiling divides into are the chain's figures, in the SDK's fee quote, which
+the signer never reads. A feature attaches the quote to its request, and the signer hands it to the review screen
+beside the review; showing its figures apart at the quote's height, as the direction's
+[fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks, is the review
+screen's ([fees and broadcast](../app/README.md#fees-and-broadcast)).
+
+What is reviewed is all of what is signed, or nothing is signed:
+
+- **A direct document** is protobuf, decoded and then encoded again. It is refused unless it comes back byte for
+  byte, and refused if it holds a field the signer's types do not have, in the body, in a message, or in a message
+  another carries: review would show less than the key signs. Its auth info must be one signer's, the account's own
+  key, signing direct.
+- **An amino document** is JSON, decoded by the SDK's `decodeAminoSignDoc` into the same body and fee, and encoded
+  again by the SDK's `makeAminoSignDoc`. It is refused unless the bytes are those the signer was asked to sign, so a
+  fault in the decoder stops a signature and never shows a member something other than what is signed. A type the
+  signer does not have has no amino document it can read, so it is refused in amino and shown as unknown in direct.
+- **Either** is refused for a chain other than the signer's network, for an account the signer does not hold, in an
+  encoding the account's key does not sign, with no message, with extension options, or unordered with no time it is
+  valid until.
+
+The signature the key returns is checked as the chain checks it, 64 bytes with a low S that verify under the
+account's key, before it is handed back with the signer's own copy of the document.
 
 ### Refusals
 
 Whatever stops a signature is a `SignerRefusal` with a kind. A kind exists only where the app does something
 different for it: `declined`, `not_granted`, `expired`, and, from the adapters, `authentication_failed`, `locked_out`,
 `device_unavailable`, `wrong_app`, and `rejected_on_device`. Everything that means a bug or an attack is `invalid`:
-bytes that are no document, a document for another network, an account the signer does not hold, a key that returned a
-bad signature. An adapter's own refusal passes through the pipeline, and anything else an adapter throws becomes
-`invalid` with the cause kept. A refusal's message is an English diagnostic for a log; what a member reads is a string
-the app chooses by kind.
+bytes that are no document, a document for another network, a transaction review cannot show whole, an account the
+signer does not hold, a key that returned a bad signature. An adapter's own refusal passes through the pipeline, and
+anything else an adapter throws becomes `invalid` with the cause kept. A refusal's message is an English diagnostic
+for a log; what a member reads is a string the app chooses by kind.
 
 ## The sign-arbitrary call
 
@@ -176,8 +218,11 @@ needs device app 2.3.0 or later, the first that signs an unordered transaction's
 The device accepts an unordered document only as the chain writes it, signed at sequence zero, and ends its review
 on two pages, `Unordered` and `Timeout Timestamp`
 ([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)).
-An ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the data as
-base64 ([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature)). The devices are those a member can sideload until
+An ADR-036 document goes to the device as its amino sign bytes, which the device shows whole, in normal and expert
+mode alike, with the data as base64 and not decoded: what the document says is read in the app's review
+([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature),
+[the device's display](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). The
+devices are those a member can sideload until
 Ledger lists the app ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a
 device without Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature
 signing, the relay, and external-wallet adapters come later.
@@ -242,11 +287,12 @@ Four capabilities, each granted separately and none implied by another:
 | `sign`           | The caller may request a signature, each one approved on review         |
 | `change_network` | The caller may switch the network the signer signs for                  |
 
-A grant names its caller, its capabilities, and, beside `sign`, the document domains the caller may ask a signature
-for: the signup flow is granted the challenge, the vouch flow the vouch document, and a feature granted neither can
-have no document signed. The signer keeps its own copy of a grant, so a caller cannot widen it afterwards. `accounts`
-needs `connect` and `read_addresses`, `signArbitrary` needs `connect`, `sign`, and the document's domain, and
-`setNetwork` needs `change_network`.
+A grant names its caller, its capabilities, and, beside `sign`, what the caller may ask a signature for: the document
+domains, and whether transactions. The signup flow is granted the challenge, the vouch flow the vouch document, a
+feature that sends transactions is granted transactions, and a feature granted none of them can have nothing signed.
+The signer keeps its own copy of a grant, so a caller cannot widen it afterwards. `accounts` needs `connect` and
+`read_addresses`; `signDirect` and `signAmino` need `connect`, `sign`, and a grant of transactions; `signArbitrary`
+needs `connect`, `sign`, and the document's domain; and `setNetwork` needs `change_network`.
 
 In the first tranche the callers are the app's own features, each holding the capabilities it needs and nothing more,
 and the signer refuses a feature that reaches past its grant. There is no blanket session. When the wallet kit arrives,
@@ -264,7 +310,8 @@ browser, and a handoff is reviewed on the phone. A member asked anywhere else to
 
 ### Transaction review
 
-Every transaction is reviewed from decoded messages ([the core](#the-core)), with the fee as the ceiling it is. What
+Every transaction is reviewed from decoded messages ([the review of a transaction](#the-review-of-a-transaction)),
+with the fee as the ceiling it is, and one review cannot show whole is not signed, in either encoding. What
 will be charged beside it, the NOAH margin as the tip it is, and the tax apart from the amount are the chain's figures,
 which the review screen shows from the SDK's quote, and only when that quote's declared fee is the document's ceiling.
 The Ledger shows its own display, which the member reads on the device;
@@ -285,8 +332,10 @@ pull request.
 
 ## Dependencies
 
-Today the one runtime dependency is `@ararat-network/sdk` at an exact version, for bytes, the chain's sorted JSON,
-address derivation, and secp256k1, so none of them has a second implementation here.
+Today the runtime dependencies are two. `@ararat-network/sdk` at an exact version is for bytes, the chain's sorted
+JSON, address derivation, secp256k1, and both encodings of a transaction, so none of them has a second implementation
+here. `@bufbuild/protobuf` at the version the SDK itself depends on is for reading a message through its type, which
+is how review finds a contract payload wherever a message holds one.
 
 As the adapters are built, the runtime dependencies are kept to: the SDK, with noble and scure through it;
 `@bufbuild/protobuf`; `@zondax/ledger-cosmos-js` and the Ledger transport packages; and libsecp256k1 at a pinned
@@ -301,7 +350,11 @@ pnpm install
 pnpm lint
 pnpm check
 pnpm test
+pnpm fixtures:check   # the decoding fixtures are those of ark at the tag in ARK_VERSION
 ```
+
+`ARK_VERSION` is the `ark` tag the pinned SDK's types are generated from, and moves with the SDK's pin: change both,
+then `pnpm fixtures:sync`.
 
 The package stands alone: its manifest, lockfile, and tooling configuration are all here, and nothing at the
 repository root is needed to build or test it. The repository's [LICENSE](../LICENSE) covers it.

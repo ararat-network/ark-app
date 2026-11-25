@@ -2,17 +2,33 @@
 // names its caller, the account, and the document; nothing is signed until
 // the member approves on the review screen, and one approval signs one
 // document. The pipeline ends at the signature: it reaches no node and no
-// service. Today it signs the signup protocol's two documents; transactions
-// join it with their review.
-import { isCompressedPublicKey, publicKeyToAddress, type SignerAccount, secp256k1PublicKey } from "@ararat-network/sdk";
+// service. It signs the signup protocol's two documents, and a transaction's
+// sign document in either encoding, as the SDK's Signer.
+import {
+  type AminoSignature,
+  type AminoSignDoc,
+  type DirectSignature,
+  isCompressedPublicKey,
+  isLowS,
+  publicKeyToAddress,
+  SIGNATURE_LENGTH,
+  type Signer,
+  type SignerAccount,
+  type SigningMode,
+  secp256k1PublicKey,
+  verifyMessage,
+} from "@ararat-network/sdk";
+import type { SignDoc } from "@ararat-network/sdk/gen/cosmos/tx/v1beta1/tx_pb.js";
 import type { AdapterAccount, KeyAdapter } from "./adapter.ts";
-import { type Grant, type HeldGrant, holdGrant, requireCapability, requireDocument } from "./permissions.ts";
+import { type Grant, type HeldGrant, holdGrant, requireCapability, requireDocument, requireTransactions } from "./permissions.ts";
 import { SignerRefusal } from "./refusal.ts";
 import { reviewDocument } from "./review/document.ts";
 import type { Review } from "./review/model.ts";
+import { reviewTransaction } from "./review/transaction.ts";
 import { type Domain, documentBytes, parseDocument, type SignupDocument } from "./signup/document.ts";
 import { type ArbitrarySigner, checkSubmission } from "./signup/proof.ts";
 import { adr036SignBytes } from "./signup/signbytes.ts";
+import { type HeldTransaction, holdAmino, holdDirect } from "./transaction.ts";
 
 /** The network the signer signs for. */
 export interface SignerNetwork {
@@ -26,17 +42,40 @@ export type Decision = "approved" | "declined";
 export interface SignerOptions {
   /** What holds the keys. An account is signed for by the first adapter that reports it. */
   readonly adapters: readonly KeyAdapter[];
-  /** The client's review screen: shows the review and resolves once the member has approved or declined. */
-  readonly present: (review: Review) => Promise<Decision>;
+  /**
+   * The client's review screen: shows the review and resolves once the member has approved or declined. The
+   * attachment is what the caller attached to its request, if anything: the signer hands it over as it was given and
+   * never reads it, so the screen trusts none of it that the review does not bear out.
+   */
+  readonly present: (review: Review, attachment?: unknown) => Promise<Decision>;
   readonly network: SignerNetwork;
   /** The clock a document's expiry is read against, Unix seconds; the system clock when omitted. */
   readonly now?: () => bigint;
 }
 
-/** The signer as one caller holds it: every call is checked against that caller's grant. */
-export interface SignerHandle extends ArbitrarySigner {
+/** An account as a handle reports it: the SDK's, and the encodings its key signs a transaction in. */
+export interface HandleAccount extends SignerAccount {
+  /** A Ledger's is amino alone, so its transactions are built in amino. */
+  readonly modes: readonly SigningMode[];
+}
+
+/**
+ * The signer as one caller holds it: every call is checked against that caller's grant. It is the SDK's Signer, so
+ * a feature hands it to the SDK's `signTx`, which builds the document and asks for the signature.
+ */
+export interface SignerHandle extends ArbitrarySigner, Signer {
   /** The signer's accounts, as the SDK's Signer reports them. Needs `connect` and `read_addresses`. */
-  accounts(): Promise<readonly SignerAccount[]>;
+  accounts(): Promise<readonly HandleAccount[]>;
+  /** Signs a transaction's direct sign document. Needs `connect`, `sign`, and a grant of transactions. */
+  signDirect(address: string, signDoc: SignDoc): Promise<DirectSignature>;
+  /** Signs a transaction's amino sign document. Needs `connect`, `sign`, and a grant of transactions. */
+  signAmino(address: string, signDoc: AminoSignDoc): Promise<AminoSignature>;
+  /**
+   * This handle for one request, with a value the review screen is handed beside the review: a fee quote, so the
+   * screen can show how the ceiling divides. It signs one document and then refuses, so no attachment is shown
+   * beside a second.
+   */
+  attach(attachment: unknown): Signer;
   /** Switches the network the signer signs for, for every caller. Needs `change_network`. */
   setNetwork(network: SignerNetwork): void;
 }
@@ -88,6 +127,17 @@ export function createSigner(options: SignerOptions): ArkSigner {
     throw new SignerRefusal("invalid", `the signer holds no account ${address}`);
   }
 
+  /** Shows the review and returns only on an approval: a decline, any other answer, and a screen that fails each sign nothing. */
+  async function consent(review: Review, attachment: unknown): Promise<void> {
+    let decision: Decision;
+    try {
+      decision = await options.present(review, attachment);
+    } catch (err) {
+      throw new SignerRefusal("invalid", "the review screen failed", { cause: err });
+    }
+    if (decision !== "approved") throw new SignerRefusal("declined", `the member declined the ${review.kind}`);
+  }
+
   function parse(data: Uint8Array): SignupDocument {
     try {
       return parseDocument(data);
@@ -117,15 +167,7 @@ export function createSigner(options: SignerOptions): ArkSigner {
     // nothing the caller or the review screen does while the member reads can change what the approval signs.
     const canonical = documentBytes(doc);
     const signBytes = adr036SignBytes(address, canonical);
-    const review: Review = { kind: "document", caller: grant.caller, account: address, fields: reviewDocument(doc) };
-
-    let decision: Decision;
-    try {
-      decision = await options.present(review);
-    } catch (err) {
-      throw new SignerRefusal("invalid", "the review screen failed", { cause: err });
-    }
-    if (decision !== "approved") throw new SignerRefusal("declined", "the member declined the document");
+    await consent({ kind: "document", caller: grant.caller, account: address, fields: reviewDocument(doc) }, undefined);
     // The member may have read for longer than the document had left.
     requireUnexpired(doc);
 
@@ -136,21 +178,82 @@ export function createSigner(options: SignerOptions): ArkSigner {
     return { signature, publicKey: account.publicKey };
   }
 
+  async function signTransaction<Doc>(
+    grant: HeldGrant,
+    address: string,
+    mode: SigningMode,
+    hold: (publicKey: Uint8Array) => HeldTransaction<Doc>,
+    attachment: unknown,
+  ): Promise<{ signDoc: Doc; signature: Uint8Array }> {
+    requireCapability(grant, "connect");
+    requireCapability(grant, "sign");
+    requireTransactions(grant);
+    const { adapter, account } = await holder(address);
+    if (!adapter.modes.includes(mode)) throw new SignerRefusal("invalid", `the key adapter does not sign ${mode}, which the document is in`);
+
+    // The bytes are fixed before the member sees the review, and the review is read from those bytes.
+    const held = hold(account.publicKey);
+    if (held.chainId !== network.chainId)
+      throw new SignerRefusal("invalid", `the transaction is for ${held.chainId}, and the signer signs for ${network.chainId}`);
+    let reviewed: ReturnType<typeof reviewTransaction>;
+    try {
+      reviewed = reviewTransaction(held.chainId, held.body, held.fee);
+    } catch (err) {
+      throw new SignerRefusal("invalid", "the transaction has no review", { cause: err });
+    }
+    await consent({ kind: "transaction", caller: grant.caller, account: address, ...reviewed }, attachment);
+
+    const signature = await fromAdapter("signing", () => adapter.sign(address, held.signBytes));
+    // What the chain's signature check asks, so a faulty adapter is caught here and not by a node.
+    const good =
+      signature instanceof Uint8Array &&
+      signature.length === SIGNATURE_LENGTH &&
+      isLowS(signature) &&
+      verifyMessage(signature, held.signBytes, account.publicKey);
+    if (!good) throw new SignerRefusal("invalid", "the key returned a signature the chain would refuse");
+    return { signDoc: held.signDoc, signature };
+  }
+
   return {
     grant(grant: Grant): SignerHandle {
       const held = holdGrant(grant);
-      return {
-        async accounts(): Promise<readonly SignerAccount[]> {
-          requireCapability(held, "connect");
-          requireCapability(held, "read_addresses");
-          const all: SignerAccount[] = [];
-          for (const adapter of adapters) {
-            for (const account of await fromAdapter("listing its accounts", () => adapter.accounts())) {
-              const { address, publicKey } = checked(account);
-              all.push({ address, publicKey: secp256k1PublicKey(publicKey) });
-            }
+      async function accounts(): Promise<readonly HandleAccount[]> {
+        requireCapability(held, "connect");
+        requireCapability(held, "read_addresses");
+        const all: HandleAccount[] = [];
+        for (const adapter of adapters) {
+          for (const account of await fromAdapter("listing its accounts", () => adapter.accounts())) {
+            const { address, publicKey } = checked(account);
+            all.push({ address, publicKey: secp256k1PublicKey(publicKey), modes: [...adapter.modes] });
           }
-          return all;
+        }
+        return all;
+      }
+      const signDirect = (address: string, signDoc: SignDoc, attachment?: unknown): Promise<DirectSignature> =>
+        signTransaction(held, address, "direct", (publicKey) => holdDirect(signDoc, publicKey), attachment);
+      const signAmino = (address: string, signDoc: AminoSignDoc, attachment?: unknown): Promise<AminoSignature> =>
+        signTransaction(held, address, "amino", () => holdAmino(signDoc), attachment);
+      return {
+        accounts,
+        signDirect: (address, signDoc) => signDirect(address, signDoc),
+        signAmino: (address, signDoc) => signAmino(address, signDoc),
+        attach(attachment: unknown): Signer {
+          let asked = false;
+          const once = (): void => {
+            if (asked) throw new SignerRefusal("invalid", "an attachment is for one request, and a document was already asked for with it");
+            asked = true;
+          };
+          return {
+            accounts,
+            async signDirect(address, signDoc) {
+              once();
+              return signDirect(address, signDoc, attachment);
+            },
+            async signAmino(address, signDoc) {
+              once();
+              return signAmino(address, signDoc, attachment);
+            },
+          };
         },
         signArbitrary(address: string, data: Uint8Array): Promise<{ signature: Uint8Array; publicKey: Uint8Array }> {
           return signArbitrary(held, address, data);

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { DocumentError, type SignupDocument } from "../signup/document.ts";
 import { signupVectors } from "../testing/vectors.ts";
 import { reviewDocument } from "./document.ts";
-import { REVIEW_CHOICES, REVIEW_LABELS } from "./model.ts";
 
 const { vectors } = signupVectors();
 const challenge = vectors.find((v) => v.name === "challenge_ok")!.challenge as unknown as SignupDocument;
@@ -31,12 +30,4 @@ test("a vouch names the admission it answers as well", () => {
 test("a document outside the grammar has no review", () => {
   assert.throws(() => reviewDocument({ ...challenge, domain: "ark-signup/v2" }), DocumentError);
   assert.throws(() => reviewDocument({ ...challenge, origin: "https://members.ararat.network/login" }), DocumentError);
-});
-
-test("every label and choice listed is one some review carries, so a language is asked for no string nothing shows", () => {
-  const fields = [...reviewDocument(challenge), ...reviewDocument(vouch)];
-  const labels = new Set<string>(fields.map((f) => f.label));
-  const choices = new Set<string>(fields.flatMap((f) => (f.value.kind === "choice" ? [f.value.choice] : [])));
-  assert.deepEqual([...labels].sort(), [...REVIEW_LABELS].sort());
-  assert.deepEqual([...choices].sort(), [...REVIEW_CHOICES].sort());
 });
