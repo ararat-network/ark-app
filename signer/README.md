@@ -259,14 +259,33 @@ wraps it.
 
 - **Generation.** 256 bits from the OS random source, in native code, kept as the seed. The key derives at
   `m/44'/330'/0'/0/0`, the path the Ledger and `arkd` use, so it can move ([backup and recovery](#backup-and-recovery)).
-- **At rest.** The seed encrypted with AES-GCM under a data key; the data key wrapped by a hardware key, a Secure
-  Enclave key on iOS and an Android Keystore key in StrongBox where the device has it, created with user authentication
-  required: the OS biometric prompt, with the device passcode as fallback.
+- **At rest.** The seed encrypted under a hardware key directly, in one layer: an AES key in the Android Keystore, in
+  StrongBox where the device has it, and the Secure Enclave's own hybrid scheme on iOS. The encrypted seed is a
+  Keychain item on iOS, which survives the app being uninstalled, and is in the app's storage on Android, which does
+  not.
+- **Authentication.** The hardware key is created with user authentication required, the OS biometric prompt with
+  the device passcode as fallback, and the member authenticates for each signature: there is no window in which the
+  key stays usable. The key is invalidated when a fingerprint or a face is enrolled, so someone who enrols their own
+  cannot sign, and the member restores from backup. A phone with no passcode, or no hardware-backed key store, is
+  refused a key.
 - **In use.** Unwrapped only for a signing call, in the native module, which hashes, signs with libsecp256k1 (RFC 6979,
-  low-S), zeroises the seed and the key, and returns the signature. JavaScript sees the address, the public key, and
-  signatures.
+  low-S), zeroises the seed and the key, and returns the signature. The raw key is handled in C alone, beside
+  libsecp256k1: Swift and Kotlin pass bytes through, since neither can be relied on to zeroise memory. JavaScript
+  sees the address, the public key, and signatures.
 - **Not exported.** No call returns the seed or the key except the backup flow below, which runs in the same module.
-  The data key is bound to the device and never leaves it; a new device gets a new one.
+  The hardware key is bound to the device and never leaves it; a new device gets a new one.
+
+**What this does not protect, and the alternative.** The key is in the app's memory while it signs, so a phone whose
+operating system is compromised can read it then: the hardware protects the key at rest and gates its use, and no
+more. A key generated inside the secure hardware would never enter the app's memory. That hardware signs P-256 alone,
+which membership does not accept ([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature)), and such a key cannot
+be exported, so it has no backup: with registration permanent, it would need a way on the chain to move a member to
+a new key, and there is none. The design keeps the software key, as wallets on this curve do. A member who wants the
+key off the phone uses a Ledger.
+
+This is designed and not built, and what it says of the two platforms is still to be read against their current
+documentation before the native code is written
+([build plan](docs/BUILD_PLAN.md#4-the-device-keystore-with-backup-a)).
 
 **Web.** No software key in the first version: a browser cannot zeroise memory or attest itself, and a web origin is
 the phishing surface. The web client builds and reviews the transaction, then signs by handoff or a Ledger.
@@ -290,14 +309,10 @@ member has never seen a key, so the backup cannot be theirs to invent.
 | B. Mnemonic              | The seed shown as 24 BIP-39 words, once, with a check that the member wrote them down. It restores on any device and in any wallet on coin type 330.                                                                                   | A lost phone, a lost platform account, leaving the app | The member keeps a secret they have never had; shown at signup, it is the failure the first user is defined by                                                 |
 | C. Both                  | A at signup; B offered once the first payment arrives and before the first stake.                                                                                                                                                      | Both                                                  | Two flows to build and explain                                                                                                                                 |
 
-Recommendation: C. A at signup, since a lost phone during the hold must cost the member nothing but a restore, and B
-once there is something to protect and the member has seen a payment arrive, as the way out of the platform account and
-of the app. Neither Apple, Google, nor Ark can read the blob, and the hardware-wrapped data key is never backed up.
-The scheme is a decision still to make:
-
-| Decision                          | Options                                                                                                                      | Recommendation                                                                                                      | Blocks                                                                    |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Backup and recovery               | A cloud keychain blob under a recovery secret; a mnemonic; both                            | Both: the blob at signup, the mnemonic before the first stake                                                       | The keystore and signup                                                   |
+Decided: C. A at signup, since a lost phone during the hold must cost the member nothing but a restore, and B once
+there is something to protect and the member has seen a payment arrive, as the way out of the platform account and of
+the app. Neither Apple, Google, nor Ark can read the blob, and the hardware key is never backed up. The keystore keeps
+the whole 256-bit seed, not the derived key alone, so the 24 words can be shown when B is offered.
 
 ## Permissions
 

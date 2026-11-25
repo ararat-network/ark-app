@@ -73,18 +73,36 @@ English diagnostic a member never reads; what a member reads is a string resourc
 
 ### 4. The device keystore, with backup A
 
-`keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin. It waits on
-[decisions b and c](#decisions), and on a scaffold in `app/` that builds and runs a native module, which is the phone
-app's first pull request.
+`keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin. It waits on a
+scaffold in `app/` that builds and runs a native module, which is the phone app's first pull request, on Expo's
+module API with generated projects.
 
 - Generation, wrapping, signing, and zeroisation as in [keystore per platform](../README.md#keystore-per-platform),
   with libsecp256k1 at a pinned release built from source.
+- The raw key in C alone. Derivation and signing are beside libsecp256k1, and Swift and Kotlin pass bytes through,
+  since neither can be relied on to zeroise memory.
+- The seed kept, all 256 bits, and not the derived key alone, so the 24 words of backup B can be shown later.
+- One layer of encryption at rest: the seed under the hardware key directly, an AES key in the Android Keystore and
+  the Secure Enclave's own hybrid scheme on iOS. A second layer is added only if a reason for one is found.
+- The encrypted seed in a Keychain item on iOS, which survives the app being uninstalled, and in the app's storage on
+  Android, which does not. What a reinstall finds on each is written in the README.
+- The member authenticates for each signature, with no window in which the key stays usable.
+- The hardware key invalidated when a fingerprint or a face is enrolled, so someone who enrols their own cannot sign,
+  and the member restores from backup.
+- A phone with no passcode, or no hardware-backed key store, refused a key, with a refusal the app can explain.
 - The biometric prompt's text passed in from JavaScript, so it is a string resource like any other.
 - Backup option A in the same module. Its restore is also how a test loads a known key, so a release build holds no
-  import made for tests.
+  import made for tests. Backup B, the mnemonic, is built with the staking flow that offers it.
 
-Done: wrap, unwrap, and zeroisation are tested on both platforms, and with the fixture keys restored the module's
-signatures equal the signup vectors' and the transaction fixtures', byte for byte.
+Before the native code is written, what the two platforms do is read against their current documentation: which
+changes invalidate a hardware key, what a key that needs authentication allows as a fallback, what the Secure Enclave
+and the Android Keystore encrypt directly, and what an uninstall removes. The bullets above were decided from
+knowledge of the two key stores and not from that reading, and one that rested on something untrue is decided again.
+
+Done: wrap, unwrap, and zeroisation are tested on both platforms; with the fixture keys restored the module's
+signatures equal the signup vectors' and the transaction fixtures', byte for byte; and a changed biometric and a
+phone with no passcode are each tested as far as the simulator and the emulator allow, with what they cannot show
+said in the README.
 
 ### 5. End to end on a localnet
 
@@ -105,7 +123,7 @@ origins from the text around them is not a first-release concern.
 
 ## Decisions
 
-| | Decision | Options | Recommendation | Blocks |
-| --- | --- | --- | --- | --- |
-| b | React Native tooling | As in the [phone app's decisions](../../app/README.md#decisions) | Expo's module API and generated projects | Stage 4 |
-| c | Backup and recovery | As in [backup and recovery](../README.md#backup-and-recovery) | Both: the blob at signup, the mnemonic before the first stake | Stage 4 |
+None is open. Those taken are written where they bear: the Ledger JS dependency in the
+[README's adapters](../README.md#adapters), and React Native tooling, backup and recovery, and the six of the
+keystore's own in [stage 4](#4-the-device-keystore-with-backup-a) and in the README's
+[keystore per platform](../README.md#keystore-per-platform) and [backup and recovery](../README.md#backup-and-recovery).
