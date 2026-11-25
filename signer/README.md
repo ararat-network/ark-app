@@ -107,10 +107,12 @@ Designed, the review of a transaction: built from the SDK decoder, which ark's d
 rendered by type; an unknown type URL shown as unknown, with the URL; a contract payload shown as unverified; and the
 intended amount and the fee ceiling shown apart. Both are read from the document, and they are all the signer shows
 of a fee: a signature commits to the messages and the ceiling and to nothing else. The tax, the gas, and the tip the
-ceiling divides into are the chain's figures, in the SDK's fee quote, which never reaches the signer. Showing them
-apart at the quote's height, as the direction's
-[fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks, is the
-feature's, on its own screen ([settled](docs/BUILD_PLAN.md#settled)).
+ceiling divides into are the chain's figures, in the SDK's fee quote, which the signer never reads. A feature attaches
+the quote to its request, and the signer hands it to the review screen beside the review; showing its figures apart at
+the quote's height, as the direction's
+[fees rule](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md) asks, is the review
+screen's ([fees and broadcast](../app/README.md#fees-and-broadcast)). An unordered transaction is shown with the time
+it is valid until.
 
 The pipeline ends at the signature. The signer reaches no node and no service: it reviews and signs the document it
 is given, and choosing a fee and broadcasting are the caller's, through the SDK. Their rules are the phone app's
@@ -258,7 +260,8 @@ browser, and a handoff is reviewed on the phone. A member asked anywhere else to
 
 Every transaction is reviewed from decoded messages ([the core](#the-core)), with the fee as the ceiling it is. What
 will be charged beside it, the NOAH margin as the tip it is, and the tax apart from the amount are the chain's figures,
-which the feature shows from the SDK's quote. The Ledger shows its own display, which the member reads on the device;
+which the review screen shows from the SDK's quote, and only when that quote's declared fee is the document's ceiling.
+The Ledger shows its own display, which the member reads on the device;
 the app's review and the device's are the same document.
 
 ## Ownership and tests
