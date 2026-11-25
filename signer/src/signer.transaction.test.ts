@@ -30,6 +30,7 @@ import {
   typed,
   type UnsignedTx,
   utf8Decode,
+  utf8Encode,
   verifyMessage,
 } from "@ararat-network/sdk";
 import { MsgExecSchema } from "@ararat-network/sdk/gen/cosmos/authz/v1beta1/tx_pb.js";
@@ -43,9 +44,11 @@ import { type RefusalKind, SignerRefusal } from "./refusal.ts";
 import type { Review } from "./review/model.ts";
 import { ReviewError } from "./review/transaction.ts";
 import { createSigner, type Decision, type SignerHandle } from "./signer.ts";
-import { SIGNUP_DOMAIN } from "./signup/document.ts";
+import { SIGNUP_DOMAIN, VOUCH_DOMAIN } from "./signup/document.ts";
+import { adr036SignBytes } from "./signup/signbytes.ts";
 import { fixtureKey, txFixture, txFixtures, unsignedTx } from "./testing/fixtures.ts";
 import { type MemoryAdapter, memoryAdapter } from "./testing/memory_adapter.ts";
+import { signupVectors } from "./testing/vectors.ts";
 import { holdAmino } from "./transaction.ts";
 
 const CHAIN = "ark-fixtures-1";
@@ -247,6 +250,64 @@ test("what is signed is fixed before review: a document changed while the member
   assert.ok(bytesEqual(aminoSignDocBytes(signedAmino.signDoc), beforeAmino), "the document handed back is the one signed");
 });
 
+test("transactions asked for at once are reviewed one at a time, in the order asked, and a network left while one waits refuses it", async () => {
+  let showing = 0;
+  const { handle, reviews, attachments, adapter } = rig({
+    answer: async () => {
+      assert.equal(++showing, 1, "another review is still up");
+      await new Promise((resolve) => setImmediate(resolve));
+      showing--;
+      return "approved";
+    },
+  });
+  const signed = await Promise.all([signTx(tx({ memo: "first" }), handle.attach("first")), signTx(tx({ memo: "second" }, "amino"), handle.attach("second"))]);
+  assert.deepEqual(attachments, ["first", "second"]);
+  assert.deepEqual(
+    reviews.map((review) => review.fields.find((field) => field.label === "transaction.memo")?.value),
+    [
+      { kind: "text", text: "first" },
+      { kind: "text", text: "second" },
+    ],
+  );
+  assert.ok(verifyMessage(signed[0].signature, adapter.signed[0]!, adapter.publicKey));
+  assert.ok(verifyMessage(signed[1].signature, adapter.signed[1]!, adapter.publicKey));
+
+  const key = memoryAdapter(MEMBER_KEY);
+  let shown = 0;
+  const signer = createSigner({
+    adapters: [key],
+    network: NETWORK,
+    present: async () => {
+      shown++;
+      signer.grant({ caller: "settings", capabilities: ["change_network"] }).setNetwork({ ...NETWORK, chainId: "ark-1" });
+      return "approved";
+    },
+  });
+  const wallet = signer.grant(WALLET);
+  const [approved, behind] = await Promise.allSettled([wallet.signDirect(MEMBER, directDoc()), wallet.signAmino(MEMBER, aminoDoc())]);
+  assert.equal(approved.status, "fulfilled", "what the member approved names its chain, and the approval stands");
+  assert.equal(behind.status === "rejected" && (behind.reason as SignerRefusal).kind, "invalid");
+  assert.equal(shown, 1);
+  assert.equal(key.signed.length, 1);
+});
+
+test("a key that says it cannot sign now is refused before the transaction is shown, in either encoding", async () => {
+  const good = memoryAdapter(MEMBER_KEY);
+  let ready = false;
+  const ledgerLike: KeyAdapter = {
+    ...good,
+    ready: async () => (ready ? undefined : Promise.reject(new SignerRefusal("wrong_app", "the Ledger has no app open"))),
+  };
+  const { handle, reviews } = rig({ adapters: [ledgerLike] });
+  for (const mode of ["direct", "amino"] as const) await refusal(signTx(tx({}, mode), handle), "wrong_app", mode);
+  assert.equal(reviews.length + good.signed.length, 0);
+
+  ready = true;
+  for (const mode of ["direct", "amino"] as const) await signTx(tx({}, mode), handle);
+  assert.equal(reviews.length, 2);
+  assert.equal(good.signed.length, 2);
+});
+
 test("a signature the chain would refuse is not handed back", async () => {
   const good = memoryAdapter(MEMBER_KEY);
   const faults: [string, (signBytes: Uint8Array) => Uint8Array][] = [
@@ -272,6 +333,19 @@ test("a key adapter's own refusal passes through", async () => {
   };
   const { handle } = rig({ adapters: [rejecting] });
   await refusal(signTx(tx(), handle), "rejected_on_device");
+});
+
+test("a transaction is built and signed through the SDK beside an adapter that cannot list its accounts", async () => {
+  const good = memoryAdapter(MEMBER_KEY);
+  const failing: KeyAdapter = { ...memoryAdapter(OTHER_KEY), accounts: async () => Promise.reject(new SignerRefusal("locked_out", "too many attempts")) };
+  // The SDK asks for the signer's accounts before it builds the document.
+  const { handle, reviews } = rig({ adapters: [failing, good] });
+  for (const mode of ["direct", "amino"] as const) {
+    const signed = await signTx(tx({}, mode), handle);
+    assert.ok(verifyMessage(signed.signature, good.signed.at(-1)!, good.publicKey), mode);
+  }
+  assert.equal(reviews.length, 2);
+  await refusal(handle.signDirect(OTHER, directDoc({ key: OTHER_KEY })), "locked_out");
 });
 
 /** A protobuf field no type here has: number 1000, a varint. */
@@ -319,6 +393,26 @@ test("an amino document that cannot be read whole is refused before review", asy
   for (const [name, bad] of refused) await refusal(handle.signAmino(MEMBER, bad), "invalid", name);
   await refusal(handle.signAmino(MEMBER, { msgs: 1n } as unknown as AminoSignDoc), "invalid", "no document at all");
   assert.equal(reviews.length + adapter.signed.length, 0);
+});
+
+test("a signup or vouch document is not signed as a transaction: its ADR-036 sign document is refused before review", async () => {
+  // Signed as a transaction, a document would pass none of what the sign-arbitrary call asks of it: a grant of its
+  // domain, the membership service's origin, and an expiry still ahead.
+  const grants: Grant[] = [WALLET, { ...WALLET, documents: [SIGNUP_DOMAIN, VOUCH_DOMAIN] }];
+  for (const name of ["challenge_ok", "vouch_ok"]) {
+    const data = utf8Encode(signupVectors().vectors.find((v) => v.name === name)!.data);
+    const doc = JSON.parse(utf8Decode(adr036SignBytes(MEMBER, data))) as AminoSignDoc;
+    assert.equal(doc.chain_id, "", "an ADR-036 sign document names no chain");
+    // On a signer whose network named no chain either, the chain would not be what refuses it.
+    for (const chainId of [CHAIN, ""]) {
+      for (const grant of grants) {
+        const { handle, adapter, reviews } = rig({ grant, chainId });
+        await refusal(handle.signAmino(MEMBER, doc), "invalid", `${name} on "${chainId}"`);
+        await refusal(handle.attach({}).signAmino(MEMBER, doc), "invalid", `${name} on "${chainId}", with an attachment`);
+        assert.equal(reviews.length + adapter.signed.length, 0, name);
+      }
+    }
+  }
 });
 
 test("an amino document that does not encode back to itself is refused, so a faulty decoder stops a signature", () => {

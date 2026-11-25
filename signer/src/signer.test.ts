@@ -197,6 +197,85 @@ test("an expired document is refused before review, and after it when the member
   await behind.signer.grant(SIGNUP).signArbitrary(ok.signer, okData);
 });
 
+test("one review is shown at a time: a request waits for those asked before it, and for what they approved to be signed", async () => {
+  const good = memoryAdapter(keyOf(ok));
+  const events: string[] = [];
+  let showing = 0;
+  const answers: Decision[] = ["approved", "declined", "approved"];
+  const r = rig({
+    adapters: [
+      {
+        ...good,
+        sign: async (address, signBytes) => {
+          events.push("signing");
+          // A key that takes its time, as a Ledger does while the member reads its screen.
+          await new Promise((resolve) => setImmediate(resolve));
+          events.push("signed");
+          return good.sign(address, signBytes);
+        },
+      },
+    ],
+    answer: async () => {
+      assert.equal(++showing, 1, "another review is still up");
+      events.push("review");
+      await new Promise((resolve) => setImmediate(resolve));
+      showing--;
+      return answers.shift()!;
+    },
+  });
+  // Whoever asks: the turn is the signer's, not a caller's.
+  const signup = r.signer.grant(SIGNUP);
+  const again = r.signer.grant({ ...SIGNUP, caller: "signup again" });
+  const [first, second, third] = await Promise.allSettled([
+    signup.signArbitrary(ok.signer, okData),
+    again.signArbitrary(ok.signer, okData),
+    signup.signArbitrary(ok.signer, okData),
+  ]);
+  assert.equal(first.status === "fulfilled" && toBase64(first.value.signature), ok.signature);
+  assert.equal(second.status === "rejected" && (second.reason as SignerRefusal).kind, "declined", "a request that fails gives up its turn");
+  assert.equal(third.status === "fulfilled" && toBase64(third.value.signature), ok.signature);
+  assert.deepEqual(
+    r.reviews.map((review) => review.caller),
+    ["signup", "signup again", "signup"],
+    "in the order asked",
+  );
+  assert.deepEqual(events, ["review", "signing", "signed", "review", "review", "signing", "signed"]);
+});
+
+test("a request that waited is checked again when its turn comes: one that expired, or whose network was left, is not shown", async () => {
+  const expires = BigInt(ok.challenge!.expires!);
+  let clock = expires - 1n;
+  const slow = rig({
+    now: () => clock,
+    answer: async () => {
+      clock = expires;
+      return "approved";
+    },
+  });
+  const handle = slow.signer.grant(SIGNUP);
+  const [read, waited] = await Promise.allSettled([handle.signArbitrary(ok.signer, okData), handle.signArbitrary(ok.signer, okData)]);
+  assert.equal(read.status === "rejected" && (read.reason as SignerRefusal).kind, "expired");
+  assert.equal(waited.status === "rejected" && (waited.reason as SignerRefusal).kind, "expired");
+  assert.equal(slow.reviews.length, 1, "the document that expired while it waited is not shown");
+  assert.equal(slow.adapter.signed.length, 0);
+
+  const local = vector("challenge_localnet_ok");
+  const settings = { caller: "settings", capabilities: ["change_network"] } as const;
+  const switched = rig({
+    answer: async () => {
+      switched.signer.grant(settings).setNetwork({ chainId: local.challenge!.chain_id!, origin: local.challenge!.origin! });
+      return "approved";
+    },
+  });
+  const signup = switched.signer.grant(SIGNUP);
+  const [approved, behind] = await Promise.allSettled([signup.signArbitrary(ok.signer, okData), signup.signArbitrary(ok.signer, okData)]);
+  // What the member approved names its chain, and the approval stands.
+  assert.equal(approved.status === "fulfilled" && toBase64(approved.value.signature), ok.signature);
+  assert.equal(behind.status === "rejected" && (behind.reason as SignerRefusal).kind, "invalid");
+  assert.equal(switched.reviews.length, 1);
+  assert.equal(switched.adapter.signed.length, 1);
+});
+
 test("each capability is refused without its grant, and none implies another", async () => {
   const r = rig();
   const all: Capability[] = ["connect", "read_addresses", "sign", "change_network"];
@@ -284,6 +363,104 @@ test("an account is signed for by the adapter that holds it, and one no adapter 
 
   await refusal(handle.signArbitrary(memoryAdapter(keyNamed("voucher")).address, okData), "invalid");
   assert.equal(r.reviews.length, 1);
+});
+
+test("an adapter that cannot list its accounts stops no other from signing, and is why an account no other holds is refused", async () => {
+  const member = memoryAdapter(keyOf(ok));
+  const other = memoryAdapter(keyNamed("other"));
+  const lockedOut: KeyAdapter = { ...other, accounts: async () => Promise.reject(new SignerRefusal("locked_out", "too many attempts")) };
+  const crashed: KeyAdapter = { ...other, accounts: async () => Promise.reject(new TypeError("the native module is not linked")) };
+
+  for (const [name, adapters] of [
+    ["the adapter that fails is asked first", [lockedOut, member]],
+    ["the adapter that fails is asked second", [member, lockedOut]],
+  ] as [string, KeyAdapter[]][]) {
+    const r = rig({ adapters });
+    const handle = r.signer.grant(SIGNUP);
+    const { signature } = await handle.signArbitrary(ok.signer, okData);
+    assert.equal(toBase64(signature), ok.signature, name);
+    assert.deepEqual(
+      (await handle.accounts()).map((a) => a.address),
+      [member.address],
+      name,
+    );
+    // The account asked for may be the one the failing adapter holds, so its refusal is the reason given.
+    await refusal(handle.signArbitrary(other.address, okData), "locked_out", name);
+    assert.equal(r.reviews.length, 1, name);
+    assert.equal(other.signed.length, 0, name);
+  }
+
+  const beside = rig({ adapters: [crashed, member] }).signer.grant(SIGNUP);
+  await beside.signArbitrary(ok.signer, okData);
+  const err = await refusal(beside.signArbitrary(other.address, okData), "invalid");
+  assert.ok(err.cause instanceof TypeError);
+
+  // With nothing listed there is no account to report, and the first adapter's refusal says why.
+  await refusal(
+    rig({ adapters: [lockedOut, crashed] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "locked_out",
+  );
+  await refusal(
+    rig({ adapters: [crashed, lockedOut] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "invalid",
+  );
+  await refusal(
+    rig({ adapters: [lockedOut, { ...member, accounts: async () => [] }] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "locked_out",
+  );
+});
+
+test("an adapter that can say whether its key can sign is asked before the review, and a key that cannot is refused with nothing shown", async () => {
+  const good = memoryAdapter(keyOf(ok));
+  const events: string[] = [];
+  const asked: string[] = [];
+  const saying: KeyAdapter = {
+    ...good,
+    ready: async (address) => {
+      asked.push(address);
+      events.push("ready");
+    },
+    sign: async (address, signBytes) => {
+      events.push("sign");
+      return good.sign(address, signBytes);
+    },
+  };
+  const r = rig({
+    adapters: [saying],
+    answer: async () => {
+      events.push("review");
+      return "approved";
+    },
+  });
+  const handle = r.signer.grant(SIGNUP);
+  // Asked when the request's turn comes, not when it is made: the answer is of the moment the review is shown.
+  await Promise.all([handle.signArbitrary(ok.signer, okData), handle.signArbitrary(ok.signer, okData)]);
+  assert.deepEqual(events, ["ready", "review", "sign", "ready", "review", "sign"]);
+  assert.deepEqual(asked, [ok.signer, ok.signer]);
+
+  // A request refused for what it asks never reaches the key, to sign or to say whether it could.
+  await refusal(r.signer.grant({ ...SIGNUP, documents: [VOUCH_DOMAIN] }).signArbitrary(ok.signer, okData), "not_granted");
+  assert.equal(asked.length, 2);
+
+  const cannot: [string, RefusalKind, () => Promise<void>][] = [
+    ["a locked Ledger", "device_locked", async () => Promise.reject(new SignerRefusal("device_locked", "the Ledger is locked"))],
+    ["a Ledger out of reach", "device_unavailable", async () => Promise.reject(new SignerRefusal("device_unavailable", "no device"))],
+    ["an adapter that fails", "invalid", async () => Promise.reject(new TypeError("undefined is not a function"))],
+  ];
+  for (const [name, kind, ready] of cannot) {
+    const key = memoryAdapter(keyOf(ok));
+    const refused = rig({ adapters: [{ ...key, ready }] });
+    const err = await refusal(refused.signer.grant(SIGNUP).signArbitrary(ok.signer, okData), kind, name);
+    if (kind === "invalid") assert.ok(err.cause instanceof TypeError, name);
+    assert.equal(refused.reviews.length, 0, `${name}: nothing is shown`);
+    assert.equal(key.signed.length, 0, `${name}: nothing reaches the key`);
+  }
 });
 
 test("what a faulty adapter returns never leaves the signer", async () => {

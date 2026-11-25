@@ -89,7 +89,8 @@ feature hands its handle to the SDK's `signTx`, which builds the document and as
 client does with its wallet. Its calls:
 
 - `accounts`, which reports the signer's accounts as the SDK's `Signer` does, each with the encodings its key signs
-  a transaction in, so a feature builds a Ledger account's transactions in amino;
+  a transaction in, so a feature builds a Ledger account's transactions in amino. An adapter that cannot list its
+  accounts is left out, and the call is refused only when there is then nothing to list;
 - `signDirect` and `signAmino`, the SDK's two, each for a transaction's sign document in one encoding
   ([the review of a transaction](#the-review-of-a-transaction));
 - `attach`, which gives the handle for one request, with a value the review screen is handed beside the review. It is
@@ -108,14 +109,19 @@ Shared by every client and every adapter, as a pipeline:
 
 1. **Consent.** A request names its caller, the account, and the document. Nothing is signed until the member approves
    on the review screen, and one approval signs one document. The review screen is the client's, passed to the signer
-   as `present`: a decline, an answer that is not an approval, and a screen that fails each sign nothing.
+   as `present`: a decline, an answer that is not an approval, and a screen that fails each sign nothing. One review
+   is shown at a time: a request waits its turn behind those asked before it, whoever asked them, and holds it until
+   its signature is back. A request that fails gives up its turn.
 2. **Review.** A document of the signup protocol is parsed and shown with its origin, which of the two documents it
    is, its chain ID, and its expiry ([the sign-arbitrary call](#the-sign-arbitrary-call)). A transaction is shown as
    its messages and what it carries beside them ([the review of a transaction](#the-review-of-a-transaction)). What
-   is signed is fixed before the review is shown, so nothing done while the member reads changes what the approval
-   signs.
-3. **Sign.** Through the adapter that holds the account. What the key returns is checked before the signature goes
-   back to the caller.
+   is signed is fixed when the request is made, before it waits and before the review is shown, so nothing done
+   while it waits or while the member reads changes what the approval signs. What depends on the clock or on the
+   signer's network is asked again when its turn comes, and a document that expired while it waited, or one for a
+   network since left, is refused and not shown.
+3. **Sign.** Through the adapter that holds the account. An adapter that can say whether its key can sign now is
+   asked before the review is shown, so a Ledger that is locked or out of reach is learned of before the member
+   reads and approves, not after. What the key returns is checked before the signature goes back to the caller.
 
 The pipeline ends at the signature. The signer reaches no node and no service: it reviews and signs the document it
 is given, and choosing a fee and broadcasting are the caller's, through the SDK. Their rules are the phone app's
@@ -202,8 +208,10 @@ admission they are answering.
 ## Adapters
 
 Two adapters in the first tranche. Both implement the same interface, `KeyAdapter`: the sign modes the key signs in,
-its accounts, and a signature over the sign bytes it is given. The core builds the sign bytes and checks every
-signature an adapter returns, so no adapter decides what is signed, and the features never know which one signed.
+its accounts, a signature over the sign bytes it is given, and, where the key may be out of reach, whether it can
+sign now. The core builds the sign bytes and checks every signature an adapter returns, so no adapter decides what
+is signed, and the features never know which one signed. An adapter that cannot list its accounts stops no other
+from signing: the core passes it over, and its refusal is the reason given for an account no other adapter holds.
 The Ledger adapter is built; the keystore is not, and the core's tests use a key in memory.
 
 The package is a TypeScript core with one subpath export per adapter, so a client imports what it has: the phone the
@@ -228,6 +236,9 @@ tests use unmodified.
 - **Before each signature** the adapter asks the device which app is open, since the Cosmos app this one was forked
   from answers the same commands; that it is unlocked and at 2.3.0 or later, the first that signs an unordered
   transaction's document; and that its account is the paired one. Another Ledger is refused and sent no document.
+- **Before each review** the adapter asks the same of the device, with no document sent and nothing shown on it, so
+  a device that cannot sign is refused by its kind before the member reads the app's review. The signature asks
+  again for itself, and nothing relies on the first answer.
 - **Amino JSON alone.** The device displays the sign document, so `signDirect` is refused and the SDK's builder takes
   the amino path for a Ledger account. The adapter sends the sign bytes as the core hands them over and rewrites
   nothing, and refuses a document past the device's 16384 bytes before sending it.

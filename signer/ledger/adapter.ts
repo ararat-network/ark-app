@@ -10,7 +10,8 @@
 // An account is paired once, when the member confirms its address on the
 // device, and is remembered by the client. After that the adapter reports the
 // account without the device, so a Ledger left in a drawer does not stop the
-// signer listing its accounts, and reaches for the device only to sign.
+// signer listing its accounts, and reaches for the device only to sign, and
+// before a review to say whether it could.
 
 import { bytesEqual, DEFAULT_PREFIX, isCompressedPublicKey, publicKeyToAddress } from "@ararat-network/sdk";
 import zondax from "@zondax/ledger-cosmos-js";
@@ -131,10 +132,16 @@ export interface LedgerAdapterOptions {
 /** The adapter for one paired Ledger account. It signs amino alone. */
 export function ledgerAdapter(options: LedgerAdapterOptions): KeyAdapter {
   const account = checkedAccount(options.account.address, options.account.publicKey);
-  // The device reviews one document at a time, so a second request waits for the first.
+  // The device answers one request at a time, and reviews one document at a time, so each waits for the one before.
   let busy: Promise<unknown> = Promise.resolve();
+  function queued<T>(run: () => Promise<T>): Promise<T> {
+    const done = busy.then(run);
+    busy = done.catch(() => undefined);
+    return done;
+  }
 
-  async function signOnDevice(signBytes: Uint8Array): Promise<Uint8Array> {
+  /** Asks something of the device app, once the device connected says it is the paired Ledger with the Ark app open, unlocked, and new enough. */
+  async function onDevice<T>(doing: string, ask: (app: CosmosApp) => Promise<T>): Promise<T> {
     let session: LedgerSession;
     try {
       session = await options.connect();
@@ -149,11 +156,17 @@ export function ledgerAdapter(options: LedgerAdapterOptions): KeyAdapter {
       if (device.address !== account.address || !bytesEqual(device.publicKey, account.publicKey)) {
         throw new SignerRefusal("device_unavailable", `the Ledger connected holds ${device.address}; the one that holds ${account.address} is not connected`);
       }
+      return await ask(app);
+    } catch (err) {
+      throw refusalOf(err, doing);
+    }
+  }
+
+  async function signOnDevice(signBytes: Uint8Array): Promise<Uint8Array> {
+    return onDevice("signing", async (app) => {
       const { signature } = await app.sign(LEDGER_PATH, Buffer.from(signBytes), DEFAULT_PREFIX, AMINO_JSON);
       return compactFromDer(signature);
-    } catch (err) {
-      throw refusalOf(err, "signing");
-    }
+    });
   }
 
   return {
@@ -168,12 +181,12 @@ export function ledgerAdapter(options: LedgerAdapterOptions): KeyAdapter {
         return Promise.reject(new SignerRefusal("invalid", `the document is ${signBytes.length} bytes, and the Ledger holds ${LEDGER_BUFFER_SIZE}`));
       }
       const bytes = Uint8Array.from(signBytes);
-      const signed = busy.then(
-        () => signOnDevice(bytes),
-        () => signOnDevice(bytes),
-      );
-      busy = signed.catch(() => undefined);
-      return signed;
+      return queued(() => signOnDevice(bytes));
+    },
+    // The same questions a signature begins with, and no document: the device shows nothing, and `sign` asks them again.
+    ready(address: string): Promise<void> {
+      if (address !== account.address) return Promise.reject(new SignerRefusal("invalid", `the Ledger adapter holds ${account.address}, not ${address}`));
+      return queued(() => onDevice("saying whether it can sign", async () => undefined));
     },
   };
 }
