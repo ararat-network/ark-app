@@ -1,7 +1,14 @@
-// The signer's public surface. The signup documents and their proof are the
-// first of it; review, the adapters, and the handoff protocol join as they
-// are built.
+// The signer's public surface: the pipeline with its grants, refusals, and
+// review model, the interface a key adapter implements, and the signup
+// documents with their proof. Transaction review, the adapters themselves,
+// and the handoff protocol join as they are built.
 
+export * from "./adapter.ts";
+export * from "./permissions.ts";
+export * from "./refusal.ts";
+export * from "./review/document.ts";
+export * from "./review/model.ts";
+export * from "./signer.ts";
 export * from "./signup/document.ts";
 export * from "./signup/proof.ts";
 export * from "./signup/signbytes.ts";
