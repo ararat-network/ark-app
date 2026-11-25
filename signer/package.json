@@ -21,7 +21,7 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@ararat-network/sdk": "0.3.0"
+    "@ararat-network/sdk": "0.4.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
