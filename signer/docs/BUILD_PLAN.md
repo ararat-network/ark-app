@@ -73,23 +73,30 @@ a member never reads; what a member reads is a string resource the app chooses b
 ### 3. The Ledger adapter
 
 `ledger/`, exported as `@ararat-network/signer/ledger`. TypeScript over an injected transport, so it needs no app.
-It waits on two things from ledger-ark:
+It waits on one thing from ledger-ark: a release that carries the device binaries, for the emulator job here. The
+release workflow now attaches the emulator's binary for each device, `ark_zemu_<model>_v<version>.elf`, with a
+checksum for every file, but no release has been cut since: 2.3.0 carries installers alone. The job pins the release
+tag and each file's SHA-256. The adapter's unit tests wait on nothing.
 
-- An emulator test that a `sign/MsgSignData` document, whose chain ID is empty, parses and displays. An account on a
-  Ledger signs up and vouches with it, and the [signup protocol](SIGNUP_PROTOCOL.md#5-signature) says the device shows
-  the document, but nothing in ledger-ark's source, documents, or emulator tests covers one.
-- Device binaries attached to its releases with their checksums, for the emulator job here. Its releases, 2.3.0
-  among them, carry installers alone.
+It no longer waits on signup. ledger-ark's emulator tests sign a signup challenge and a vouch, the protocol's own
+vectors, on every device and with no change to the device app
+([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). What
+they show bears on the adapter:
+
+- The device shows `data` as base64 and does not decode it, so the origin, which document it is, and the expiry are
+  read in the app's review alone. A challenge and a vouch look alike on the device.
+- The device signs a document naming any address as its signer. The core builds the sign bytes for the account whose
+  key signs, and that is what keeps a Ledger from signing for another address.
+- The review is the same in normal and expert mode, and is titled as a transaction.
 
 It no longer waits on the device app for unordered transactions. From 2.3.0 the app signs an unordered transaction's
 amino document and shows its expiry
 ([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)),
 so a Ledger account sends as a device key does.
 
-The Ledger JS package is Zondax's `@zondax/ledger-cosmos-js` as published, and needs no fork: ledger-ark forked the
-device app alone, and its emulator tests drive that app with the package unmodified. It is CommonJS and returns DER
-signatures with nothing said of low S. Whether the adapter uses it or a small client of its own is
-[decision a](#decisions), due here.
+The adapter is built on Zondax's `@zondax/ledger-cosmos-js` as published, at an exact version, and it alone touches
+the package. No fork is needed: ledger-ark forked the device app alone, and its emulator tests drive that app with
+the package unmodified. It is CommonJS and returns DER signatures with nothing said of low S.
 
 - Derives at `m/44'/330'/0'/0/0` with the `ark` prefix, confirms the address on the device at first use, and signs in
   amino alone.
@@ -150,6 +157,5 @@ origins from the text around them is not a first-release concern.
 
 | | Decision | Options | Recommendation | Blocks |
 | --- | --- | --- | --- | --- |
-| a | The Ledger JS dependency | Zondax's package at an exact version, touched by the adapter alone; or a small client of the device's commands written here against ledger-ark's `APDUSPEC.md`, with no CommonJS, `buffer`, or `ripemd160` | Zondax's package | Stage 3 |
 | b | React Native tooling | As in the [phone app's decisions](../../app/README.md#decisions) | Expo's module API and generated projects | Stage 4 |
 | c | Backup and recovery | As in [backup and recovery](../README.md#backup-and-recovery) | Both: the blob at signup, the mnemonic before the first stake | Stage 4 |

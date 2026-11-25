@@ -218,8 +218,11 @@ needs device app 2.3.0 or later, the first that signs an unordered transaction's
 The device accepts an unordered document only as the chain writes it, signed at sequence zero, and ends its review
 on two pages, `Unordered` and `Timeout Timestamp`
 ([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)).
-An ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the data as
-base64 ([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature)). The devices are those a member can sideload until
+An ADR-036 document goes to the device as its amino sign bytes, which the device shows whole, in normal and expert
+mode alike, with the data as base64 and not decoded: what the document says is read in the app's review
+([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature),
+[the device's display](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#signup-documents)). The
+devices are those a member can sideload until
 Ledger lists the app ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a
 device without Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature
 signing, the relay, and external-wallet adapters come later.

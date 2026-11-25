@@ -118,8 +118,9 @@ its data.
 Both signers are the Ark app's, behind its signer interface:
 
 - The device key signs the document through the signer's sign-arbitrary call.
-- A Ledger, through the app's Ledger adapter, signs the amino sign bytes. The device shows the document in expert
-  mode, with `data` as base64.
+- A Ledger, through the app's Ledger adapter, signs the amino sign bytes. The device shows every member of the sign
+  document, in normal and expert mode alike, with `data` as the base64 text it signs and not decoded. What the
+  document says is read in the app's review; the device shows that the bytes signed are the ones the app sent.
 
 ## 6. Submission
 
