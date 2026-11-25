@@ -107,10 +107,10 @@ broadcasts a transaction as three steps.
   the quote only when its declared fee is the document's ceiling
   ([fees and broadcast](../../app/README.md#fees-and-broadcast)). This is built for every denomination from the
   start, not for the first tranche's NOAH alone.
-- An unordered document shown with the time it is valid until. Independent transactions from a device key are sent
-  unordered, which the chain allows: each expires at a timestamp in place of holding a sequence, so none can take
-  another's and nothing is signed twice. Actions that belong together are one transaction of several messages: one
-  review and one signature.
+- An unordered document shown with the time it is valid until. Independent transactions are sent unordered, from a
+  device key and from a Ledger alike, which the chain allows: each expires at a timestamp in place of holding a
+  sequence, so none can take another's and nothing is signed twice. Actions that belong together are one transaction
+  of several messages: one review and one signature.
 - A document for a chain other than the signer's network, or naming an account the signer does not hold, is refused.
 
 Done: every transaction fixture signed through the pipeline, in each mode, reproduces its signature and its bytes;
@@ -127,8 +127,13 @@ It waits on two things from ledger-ark:
 - An emulator test that a `sign/MsgSignData` document, whose chain ID is empty, parses and displays. An account on a
   Ledger signs up and vouches with it, and the [signup protocol](SIGNUP_PROTOCOL.md#5-signature) says the device shows
   the document, but nothing in ledger-ark's source, documents, or emulator tests covers one.
-- Device binaries attached to its releases with their checksums, for the emulator job here. Its releases carry
-  installers alone.
+- Device binaries attached to its releases with their checksums, for the emulator job here. Its releases, 2.3.0
+  among them, carry installers alone.
+
+It no longer waits on the device app for unordered transactions. From 2.3.0 the app signs an unordered transaction's
+amino document and shows its expiry
+([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)),
+so a Ledger account sends as a device key does.
 
 The Ledger JS package is Zondax's `@zondax/ledger-cosmos-js` as published, and needs no fork: ledger-ark forked the
 device app alone, and its emulator tests drive that app with the package unmodified. It is CommonJS and returns DER
@@ -140,15 +145,23 @@ signatures with nothing said of low S. Whether the adapter uses it or a small cl
 - Converts the device's DER signature to `r || s` and normalises it to low S.
 - Maps the device's return codes to refusal kinds: `0x6986` rejected on the device, `0x5515` locked, `0x6E00` and
   `0x6E01` the wrong app, a transport failure the device unavailable, and the rest invalid.
-- Refuses before sending what the device would refuse: an unordered document or one with a timeout timestamp, which
-  are outside the device's closed list of root keys, and a document past its buffer. A Ledger account therefore sends
-  ordered transactions alone, until ledger-ark's device app accepts those two keys.
-- A transaction refused for its sequence is prepared again and reviewed again, never signed again unseen. One approval
-  signs one document, so a retry is a second review of what the member took for one action: the three steps sign
-  once, and the SDK's `sendTx` signs a second time only when asked to.
+- Reads the device app's version on connecting and refuses one before 2.3.0, the first that signs an unordered
+  document: an older app refuses the `unordered` and `timeout_timestamp` keys as outside its closed list. Every Ledger
+  account then has one path. The refusal is a kind of its own, `app_outdated`, added with the adapter, since the
+  member is told to update the app and `wrong_app` tells them to open it.
+- Sends an unordered document as the core hands it over, rewriting nothing. The device accepts one only as the chain
+  writes it: `unordered` the bare boolean `true`, a `timeout_timestamp` beside it, the time in UTC in Go's spelling
+  of RFC 3339, and the sequence `"0"`. Anything else it refuses before review with `0x6984`. The SDK's amino encoder
+  writes that form and the core signs only a document that encodes back to itself, so a refusal here is a fault and
+  maps to `invalid`.
+- Refuses before sending a document past the device's buffer.
+- An unordered document has no sequence to be refused for. One whose time passes while the member reads on the device
+  is refused by the chain, and is prepared again and reviewed again, never signed again unseen: one approval signs one
+  document.
 
-Done: unit tests on recorded exchanges pass, and a CI job signs fixture amino documents and a signup vector on the
-emulator, each signature verified against the emulator's key.
+Done: unit tests on recorded exchanges pass, an app before 2.3.0 is refused, and a CI job signs fixture amino
+documents, an unordered document, and a signup vector on the emulator, each signature verified against the emulator's
+key.
 
 ### 4. The device keystore, with backup A
 
@@ -168,8 +181,8 @@ signatures equal the signup vectors' and the transaction fixtures', byte for byt
 ### 5. End to end on a localnet
 
 The done-line of the repository's first step: a transaction built and broadcast by a test through the SDK's
-`prepareTx`, `signTx`, and `broadcastTx`, signed from a device key, unordered, and from a Ledger, ordered, on the
-pattern of the SDK's localnet smoke workflow.
+`prepareTx`, `signTx`, and `broadcastTx`, signed from a device key and from a Ledger, each unordered, on the pattern
+of the SDK's localnet smoke workflow.
 
 ### Order, and what is outside it
 

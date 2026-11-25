@@ -171,8 +171,12 @@ on the phone, WebUSB or WebHID on the web. ledger-ark forks the device app and n
 tests use unmodified. The package returns a DER signature, which the adapter converts to `r || s` and normalises to
 low S. The adapter derives at `m/44'/330'/0'/0/0` with the `ark` prefix, the only path the
 device app accepts, confirms the address on the device at first use, and signs in amino JSON alone: the device displays
-the sign document, so `signDirect` is refused and the SDK's builder takes the amino path for a Ledger account. An
-ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the data as
+the sign document, so `signDirect` is refused and the SDK's builder takes the amino path for a Ledger account. It
+needs device app 2.3.0 or later, the first that signs an unordered transaction's document, and refuses an older one.
+The device accepts an unordered document only as the chain writes it, signed at sequence zero, and ends its review
+on two pages, `Unordered` and `Timeout Timestamp`
+([transaction spec](https://github.com/ararat-network/ledger-ark/blob/main/docs/TXSPEC.md#unordered-transactions)).
+An ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the data as
 base64 ([signup protocol §5](docs/SIGNUP_PROTOCOL.md#5-signature)). The devices are those a member can sideload until
 Ledger lists the app ([install guide](https://github.com/ararat-network/ledger-ark/blob/main/docs/SIDELOAD.md)); a
 device without Bluetooth, the Nano S+, signs from the web client or from an Android phone over USB. Multisignature
@@ -264,7 +268,9 @@ Every transaction is reviewed from decoded messages ([the core](#the-core)), wit
 will be charged beside it, the NOAH margin as the tip it is, and the tax apart from the amount are the chain's figures,
 which the review screen shows from the SDK's quote, and only when that quote's declared fee is the document's ceiling.
 The Ledger shows its own display, which the member reads on the device;
-the app's review and the device's are the same document.
+the app's review and the device's are the same document. For an unordered transaction the device shows the time it is
+valid until in UTC, as it is signed, where the app shows the same moment in the member's own time. The device has no
+clock, so it cannot say whether that time has passed or how far off it is.
 
 ## Ownership and tests
 
