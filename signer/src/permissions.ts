@@ -1,9 +1,10 @@
 // What a caller may ask of the signer. Four capabilities, each granted
-// separately and none implied by another, and beside `sign` the document
-// domains the caller may ask a signature for: the signup flow is granted the
-// challenge, the vouch flow the vouch document, and a feature granted neither
-// can have no document signed at all. The callers are the app's own features
-// today; the same grant is made per dapp origin once there are dapps.
+// separately and none implied by another, and beside `sign` what the caller
+// may ask a signature for: the signup flow is granted the challenge, the
+// vouch flow the vouch document, a feature that sends transactions is granted
+// transactions, and a feature granted none of them can have nothing signed at
+// all. The callers are the app's own features today; the same grant is made
+// per dapp origin once there are dapps.
 import { SignerRefusal } from "./refusal.ts";
 import { type Domain, SIGNUP_DOMAIN, VOUCH_DOMAIN } from "./signup/document.ts";
 
@@ -26,6 +27,8 @@ export interface Grant {
   readonly capabilities: readonly Capability[];
   /** The document domains a caller holding `sign` may ask a signature for; none when omitted. */
   readonly documents?: readonly Domain[];
+  /** Whether a caller holding `sign` may ask a signature for a transaction; not when omitted. */
+  readonly transactions?: boolean;
 }
 
 /** A grant as the signer holds it: its own copy, which the caller cannot widen afterwards. */
@@ -33,6 +36,7 @@ export interface HeldGrant {
   readonly caller: string;
   readonly capabilities: ReadonlySet<Capability>;
   readonly documents: ReadonlySet<Domain>;
+  readonly transactions: boolean;
 }
 
 const DOMAINS: readonly string[] = [SIGNUP_DOMAIN, VOUCH_DOMAIN];
@@ -47,7 +51,7 @@ export function holdGrant(grant: Grant): HeldGrant {
   for (const domain of documents) {
     if (!DOMAINS.includes(domain)) throw new SignerRefusal("invalid", `no document domain ${String(domain)}`);
   }
-  return { caller: grant.caller, capabilities: new Set(grant.capabilities), documents: new Set(documents) };
+  return { caller: grant.caller, capabilities: new Set(grant.capabilities), documents: new Set(documents), transactions: grant.transactions === true };
 }
 
 export function requireCapability(grant: HeldGrant, capability: Capability): void {
@@ -56,4 +60,8 @@ export function requireCapability(grant: HeldGrant, capability: Capability): voi
 
 export function requireDocument(grant: HeldGrant, domain: Domain): void {
   if (!grant.documents.has(domain)) throw new SignerRefusal("not_granted", `${grant.caller} is not granted a signature on a ${domain} document`);
+}
+
+export function requireTransactions(grant: HeldGrant): void {
+  if (!grant.transactions) throw new SignerRefusal("not_granted", `${grant.caller} is not granted a signature on a transaction`);
 }

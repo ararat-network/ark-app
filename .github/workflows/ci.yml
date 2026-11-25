@@ -55,6 +55,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
 
+  signer-fixtures:
+    name: "signer: fixtures match ark at ARK_VERSION"
+    needs: changes
+    if: needs.changes.outputs.signer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fixtures:check
+
   signer-test:
     name: "signer: type check and tests (Node ${{ matrix.node }})"
     needs: changes
@@ -81,7 +99,7 @@ jobs:
   ci:
     # The main ruleset requires this check by name.
     name: ci
-    needs: [changes, signer-lint, signer-test]
+    needs: [changes, signer-lint, signer-fixtures, signer-test]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

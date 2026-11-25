@@ -14,6 +14,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "fixtures:sync": "./scripts/sync-fixtures.sh",
+    "fixtures:check": "./scripts/sync-fixtures.sh && ./scripts/check-clean.sh testdata/decoding",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
     "lint": "biome check .",
@@ -21,7 +23,8 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@ararat-network/sdk": "0.4.0"
+    "@ararat-network/sdk": "0.4.0",
+    "@bufbuild/protobuf": "2.17.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
