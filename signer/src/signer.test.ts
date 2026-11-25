@@ -286,6 +286,57 @@ test("an account is signed for by the adapter that holds it, and one no adapter 
   assert.equal(r.reviews.length, 1);
 });
 
+test("an adapter that cannot list its accounts stops no other from signing, and is why an account no other holds is refused", async () => {
+  const member = memoryAdapter(keyOf(ok));
+  const other = memoryAdapter(keyNamed("other"));
+  const lockedOut: KeyAdapter = { ...other, accounts: async () => Promise.reject(new SignerRefusal("locked_out", "too many attempts")) };
+  const crashed: KeyAdapter = { ...other, accounts: async () => Promise.reject(new TypeError("the native module is not linked")) };
+
+  for (const [name, adapters] of [
+    ["the adapter that fails is asked first", [lockedOut, member]],
+    ["the adapter that fails is asked second", [member, lockedOut]],
+  ] as [string, KeyAdapter[]][]) {
+    const r = rig({ adapters });
+    const handle = r.signer.grant(SIGNUP);
+    const { signature } = await handle.signArbitrary(ok.signer, okData);
+    assert.equal(toBase64(signature), ok.signature, name);
+    assert.deepEqual(
+      (await handle.accounts()).map((a) => a.address),
+      [member.address],
+      name,
+    );
+    // The account asked for may be the one the failing adapter holds, so its refusal is the reason given.
+    await refusal(handle.signArbitrary(other.address, okData), "locked_out", name);
+    assert.equal(r.reviews.length, 1, name);
+    assert.equal(other.signed.length, 0, name);
+  }
+
+  const beside = rig({ adapters: [crashed, member] }).signer.grant(SIGNUP);
+  await beside.signArbitrary(ok.signer, okData);
+  const err = await refusal(beside.signArbitrary(other.address, okData), "invalid");
+  assert.ok(err.cause instanceof TypeError);
+
+  // With nothing listed there is no account to report, and the first adapter's refusal says why.
+  await refusal(
+    rig({ adapters: [lockedOut, crashed] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "locked_out",
+  );
+  await refusal(
+    rig({ adapters: [crashed, lockedOut] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "invalid",
+  );
+  await refusal(
+    rig({ adapters: [lockedOut, { ...member, accounts: async () => [] }] })
+      .signer.grant(SIGNUP)
+      .accounts(),
+    "locked_out",
+  );
+});
+
 test("what a faulty adapter returns never leaves the signer", async () => {
   const good = memoryAdapter(keyOf(ok));
   const other = memoryAdapter(keyNamed("other"));

@@ -40,7 +40,10 @@ export interface SignerNetwork {
 export type Decision = "approved" | "declined";
 
 export interface SignerOptions {
-  /** What holds the keys. An account is signed for by the first adapter that reports it. */
+  /**
+   * What holds the keys. An account is signed for by the first adapter that reports it, and an adapter that cannot
+   * list its accounts stops no other from signing for its own.
+   */
   readonly adapters: readonly KeyAdapter[];
   /**
    * The client's review screen: shows the review and resolves once the member has approved or declined. The
@@ -64,7 +67,11 @@ export interface HandleAccount extends SignerAccount {
  * a feature hands it to the SDK's `signTx`, which builds the document and asks for the signature.
  */
 export interface SignerHandle extends ArbitrarySigner, Signer {
-  /** The signer's accounts, as the SDK's Signer reports them. Needs `connect` and `read_addresses`. */
+  /**
+   * The signer's accounts, as the SDK's Signer reports them. Needs `connect` and `read_addresses`. An adapter that
+   * cannot list its accounts is left out, since the SDK asks for the accounts before every signature and one adapter's
+   * fault must not stop another's key from signing; with nothing to list, the call is refused as that adapter was.
+   */
   accounts(): Promise<readonly HandleAccount[]>;
   /** Signs a transaction's direct sign document. Needs `connect`, `sign`, and a grant of transactions. */
   signDirect(address: string, signDoc: SignDoc): Promise<DirectSignature>;
@@ -99,12 +106,24 @@ function derivesTo(publicKey: Uint8Array, address: string): boolean {
 }
 
 /** An adapter's own refusal passes through; anything else it throws is its fault, not a reason a member can act on. */
+function adapterRefusal(doing: string, err: unknown): SignerRefusal {
+  return err instanceof SignerRefusal ? err : new SignerRefusal("invalid", `the key adapter failed ${doing}`, { cause: err });
+}
+
 async function fromAdapter<T>(doing: string, call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (err) {
-    if (err instanceof SignerRefusal) throw err;
-    throw new SignerRefusal("invalid", `the key adapter failed ${doing}`, { cause: err });
+    throw adapterRefusal(doing, err);
+  }
+}
+
+/** An adapter's accounts, or the refusal it failed to list them with. */
+async function listed(adapter: KeyAdapter): Promise<readonly AdapterAccount[] | SignerRefusal> {
+  try {
+    return await adapter.accounts();
+  } catch (err) {
+    return adapterRefusal("listing its accounts", err);
   }
 }
 
@@ -120,11 +139,19 @@ export function createSigner(options: SignerOptions): ArkSigner {
   }
 
   async function holder(address: string): Promise<{ adapter: KeyAdapter; account: AdapterAccount }> {
+    let failed: SignerRefusal | undefined;
     for (const adapter of adapters) {
-      const account = (await fromAdapter("listing its accounts", () => adapter.accounts())).find((a) => a.address === address);
+      const accounts = await listed(adapter);
+      // An adapter that cannot list its accounts does not stop another from signing for one it holds.
+      if (accounts instanceof SignerRefusal) {
+        failed ??= accounts;
+        continue;
+      }
+      const account = accounts.find((a) => a.address === address);
       if (account) return { adapter, account: checked(account) };
     }
-    throw new SignerRefusal("invalid", `the signer holds no account ${address}`);
+    // No adapter that answered holds the account, so it may be the one that did not: its refusal is the reason given.
+    throw failed ?? new SignerRefusal("invalid", `the signer holds no account ${address}`);
   }
 
   /** Shows the review and returns only on an approval: a decline, any other answer, and a screen that fails each sign nothing. */
@@ -221,12 +248,19 @@ export function createSigner(options: SignerOptions): ArkSigner {
         requireCapability(held, "connect");
         requireCapability(held, "read_addresses");
         const all: HandleAccount[] = [];
+        let failed: SignerRefusal | undefined;
         for (const adapter of adapters) {
-          for (const account of await fromAdapter("listing its accounts", () => adapter.accounts())) {
+          const accounts = await listed(adapter);
+          if (accounts instanceof SignerRefusal) {
+            failed ??= accounts;
+            continue;
+          }
+          for (const account of accounts) {
             const { address, publicKey } = checked(account);
             all.push({ address, publicKey: secp256k1PublicKey(publicKey), modes: [...adapter.modes] });
           }
         }
+        if (failed && all.length === 0) throw failed;
         return all;
       }
       const signDirect = (address: string, signDoc: SignDoc, attachment?: unknown): Promise<DirectSignature> =>

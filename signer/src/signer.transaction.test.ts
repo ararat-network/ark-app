@@ -277,6 +277,19 @@ test("a key adapter's own refusal passes through", async () => {
   await refusal(signTx(tx(), handle), "rejected_on_device");
 });
 
+test("a transaction is built and signed through the SDK beside an adapter that cannot list its accounts", async () => {
+  const good = memoryAdapter(MEMBER_KEY);
+  const failing: KeyAdapter = { ...memoryAdapter(OTHER_KEY), accounts: async () => Promise.reject(new SignerRefusal("locked_out", "too many attempts")) };
+  // The SDK asks for the signer's accounts before it builds the document.
+  const { handle, reviews } = rig({ adapters: [failing, good] });
+  for (const mode of ["direct", "amino"] as const) {
+    const signed = await signTx(tx({}, mode), handle);
+    assert.ok(verifyMessage(signed.signature, good.signed.at(-1)!, good.publicKey), mode);
+  }
+  assert.equal(reviews.length, 2);
+  await refusal(handle.signDirect(OTHER, directDoc({ key: OTHER_KEY })), "locked_out");
+});
+
 /** A protobuf field no type here has: number 1000, a varint. */
 const UNKNOWN_FIELD = new Uint8Array([0xc0, 0x3e, 0x01]);
 const withUnknownField = (bytes: Uint8Array): Uint8Array => new Uint8Array([...bytes, ...UNKNOWN_FIELD]);
