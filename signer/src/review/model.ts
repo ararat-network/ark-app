@@ -24,6 +24,13 @@ export const REVIEW_LABELS = [
   "message.delegate.delegator",
   "message.delegate.validator",
   "message.delegate.amount",
+  "message.undelegate.delegator",
+  "message.undelegate.validator",
+  "message.undelegate.amount",
+  "message.redelegate.delegator",
+  "message.redelegate.from_validator",
+  "message.redelegate.to_validator",
+  "message.redelegate.amount",
   "message.vote.proposal",
   "message.vote.voter",
   "message.vote.option",
@@ -33,6 +40,9 @@ export const REVIEW_LABELS = [
   "message.send.amount",
   "message.withdraw_reward.delegator",
   "message.withdraw_reward.validator",
+  "message.set_payee.sender",
+  "message.set_payee.grant",
+  "message.set_payee.payee",
 ] as const;
 export type ReviewLabel = (typeof REVIEW_LABELS)[number];
 
@@ -50,7 +60,15 @@ export const REVIEW_CHOICES = [
 export type ReviewChoice = (typeof REVIEW_CHOICES)[number];
 
 /** The messages review summarises, each named by its own string. */
-export const REVIEW_MESSAGES = ["message.delegate", "message.vote", "message.send", "message.withdraw_reward"] as const;
+export const REVIEW_MESSAGES = [
+  "message.delegate",
+  "message.undelegate",
+  "message.redelegate",
+  "message.vote",
+  "message.send",
+  "message.withdraw_reward",
+  "message.set_payee",
+] as const;
 export type ReviewMessage = (typeof REVIEW_MESSAGES)[number];
 
 /** How a message is shown; a client has a string for each but `summary`, which is named by its message. */

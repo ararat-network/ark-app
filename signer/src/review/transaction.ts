@@ -1,9 +1,12 @@
 // A transaction as what a member reads before signing: each message, then
 // what the transaction carries beside them. It is built from the decoded body
 // and fee, so a direct document and an amino one of the same transaction give
-// the same review. The four messages a member signs in the first tranche have
-// a summary; every other type the chain has is shown as the chain's JSON
-// view, and a type the signer does not have as its type URL and bytes.
+// the same review. Seven messages have a summary: the four a member signs in
+// the first tranche, a delegation, a vote, a send, and a withdrawal of
+// rewards, and three a member may sign after it, an undelegation, a
+// redelegation, and a move of their grant's payee. Every other type the chain
+// has is shown as the chain's JSON view, and a type the signer does not have
+// as its type URL and bytes.
 //
 // The fee is shown as the ceiling it is: a signature commits to the messages
 // and the ceiling and to nothing else. How the ceiling divides into tax, gas,
@@ -11,11 +14,19 @@
 
 import { type DecodedMessage, decodeMessage, typeUrlOf } from "@ararat-network/sdk";
 import { encoding } from "@ararat-network/sdk/gen/amino/amino_pb.js";
+import { type MsgSetPayee, MsgSetPayeeSchema } from "@ararat-network/sdk/gen/ark/disbursement/v1/tx_pb.js";
 import { type MsgSend, MsgSendSchema } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
 import { type MsgWithdrawDelegatorReward, MsgWithdrawDelegatorRewardSchema } from "@ararat-network/sdk/gen/cosmos/distribution/v1beta1/tx_pb.js";
 import { VoteOption } from "@ararat-network/sdk/gen/cosmos/gov/v1/gov_pb.js";
 import { type MsgVote, MsgVoteSchema } from "@ararat-network/sdk/gen/cosmos/gov/v1/tx_pb.js";
-import { type MsgDelegate, MsgDelegateSchema } from "@ararat-network/sdk/gen/cosmos/staking/v1beta1/tx_pb.js";
+import {
+  type MsgBeginRedelegate,
+  MsgBeginRedelegateSchema,
+  type MsgDelegate,
+  MsgDelegateSchema,
+  type MsgUndelegate,
+  MsgUndelegateSchema,
+} from "@ararat-network/sdk/gen/cosmos/staking/v1beta1/tx_pb.js";
 import type { Fee, TxBody } from "@ararat-network/sdk/gen/cosmos/tx/v1beta1/tx_pb.js";
 import { type DescMessage, getOption, hasOption, type Message } from "@bufbuild/protobuf";
 import { isReflectList, isReflectMap, isReflectMessage, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
@@ -56,6 +67,31 @@ function delegate(m: MsgDelegate): Summary | undefined {
   };
 }
 
+function undelegate(m: MsgUndelegate): Summary | undefined {
+  if (!m.amount) return undefined;
+  return {
+    message: "message.undelegate",
+    fields: [
+      address("message.undelegate.delegator", m.delegatorAddress),
+      address("message.undelegate.validator", m.validatorAddress),
+      amount("message.undelegate.amount", m.amount),
+    ],
+  };
+}
+
+function redelegate(m: MsgBeginRedelegate): Summary | undefined {
+  if (!m.amount) return undefined;
+  return {
+    message: "message.redelegate",
+    fields: [
+      address("message.redelegate.delegator", m.delegatorAddress),
+      address("message.redelegate.from_validator", m.validatorSrcAddress),
+      address("message.redelegate.to_validator", m.validatorDstAddress),
+      amount("message.redelegate.amount", m.amount),
+    ],
+  };
+}
+
 const VOTE_OPTIONS: ReadonlyMap<VoteOption, ReviewChoice> = new Map([
   [VoteOption.YES, "message.vote.option.yes"],
   [VoteOption.ABSTAIN, "message.vote.option.abstain"],
@@ -86,11 +122,22 @@ function withdrawReward(m: MsgWithdrawDelegatorReward): Summary {
   };
 }
 
+/** The grant by its number, as the chain names it, and the address its payments would go to from then on. */
+function setPayee(m: MsgSetPayee): Summary {
+  return {
+    message: "message.set_payee",
+    fields: [address("message.set_payee.sender", m.sender), number("message.set_payee.grant", m.grantId), address("message.set_payee.payee", m.payee)],
+  };
+}
+
 const SUMMARIES: ReadonlyMap<string, Summarise> = new Map<string, Summarise>([
   [typeUrlOf(MsgDelegateSchema), (m) => delegate(m as MsgDelegate)],
+  [typeUrlOf(MsgUndelegateSchema), (m) => undelegate(m as MsgUndelegate)],
+  [typeUrlOf(MsgBeginRedelegateSchema), (m) => redelegate(m as MsgBeginRedelegate)],
   [typeUrlOf(MsgVoteSchema), (m) => vote(m as MsgVote)],
   [typeUrlOf(MsgSendSchema), (m) => send(m as MsgSend)],
   [typeUrlOf(MsgWithdrawDelegatorRewardSchema), (m) => withdrawReward(m as MsgWithdrawDelegatorReward)],
+  [typeUrlOf(MsgSetPayeeSchema), (m) => setPayee(m as MsgSetPayee)],
 ]);
 
 const ANY = "google.protobuf.Any";
