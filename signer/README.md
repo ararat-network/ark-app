@@ -166,8 +166,10 @@ keystore, so nothing native reaches a browser build.
 
 **Device keystore.** The default, [keystore per platform](#keystore-per-platform).
 
-**Ledger.** Over ledger-ark's JS package, its fork of `@zondax/ledger-cosmos-js`, on an `hw-transport`: Bluetooth on the
-phone, WebUSB or WebHID on the web. The adapter derives at `m/44'/330'/0'/0/0` with the `ark` prefix, the only path the
+**Ledger.** Over Zondax's `@zondax/ledger-cosmos-js` as published, at an exact version, on an `hw-transport`: Bluetooth
+on the phone, WebUSB or WebHID on the web. ledger-ark forks the device app and not this package, which its emulator
+tests use unmodified. The package returns a DER signature, which the adapter converts to `r || s` and normalises to
+low S. The adapter derives at `m/44'/330'/0'/0/0` with the `ark` prefix, the only path the
 device app accepts, confirms the address on the device at first use, and signs in amino JSON alone: the device displays
 the sign document, so `signDirect` is refused and the SDK's builder takes the amino path for a Ledger account. An
 ADR-036 document goes to the device as its amino sign bytes, which the device shows in expert mode with the data as
@@ -281,8 +283,8 @@ Today the one runtime dependency is `@ararat-network/sdk` at an exact version, f
 address derivation, and secp256k1, so none of them has a second implementation here.
 
 As the adapters are built, the runtime dependencies are kept to: the SDK, with noble and scure through it;
-`@bufbuild/protobuf`; ledger-ark's JS package and the Ledger transport packages; and libsecp256k1 at a pinned release,
-built from source in the native module. A bump to any of them is reviewed by the signer's owners.
+`@bufbuild/protobuf`; `@zondax/ledger-cosmos-js` and the Ledger transport packages; and libsecp256k1 at a pinned
+release, built from source in the native module. A bump to any of them is reviewed by the signer's owners.
 
 ## Development
 

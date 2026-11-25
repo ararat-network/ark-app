@@ -7,65 +7,9 @@ to Built. A stage's section is removed here once it is built, since the README t
 
 ## Contents
 
-- [What the design did not yet account for](#what-the-design-did-not-yet-account-for)
-- [Settled](#settled)
 - [The shape of the package](#the-shape-of-the-package)
 - [Stages](#stages)
 - [Decisions](#decisions)
-
-## What the design did not yet account for
-
-Three facts found while planning change the design as the READMEs state it. A fourth, that the fee quote has no way
-to reach the signer, is [settled](#settled): the signer carries it to the review screen and does not read it.
-
-1. **An amino document arrives with nothing to decode.** `signAmino(address, aminoSignDoc)` receives JSON alone, and
-   the SDK has an amino encoder and no amino decoder. Review was to be built on the protobuf decoder alone.
-2. **There is no Ark fork of the Ledger JS package.** `ledger-ark/js` is an unmodified submodule of Zondax's
-   `@zondax/ledger-cosmos-js`: CommonJS, returning DER signatures, with nothing said of low S. The device app is what
-   was forked.
-3. **ADR-036 on the device is untested.** Nothing in ledger-ark's source, documents, or emulator tests covers a
-   `sign/MsgSignData` document, whose chain ID is empty. The [signup protocol](SIGNUP_PROTOCOL.md#5-signature) says the
-   device shows it.
-
-Smaller facts the stages rest on:
-
-- The decoding fixtures, 85 transactions in `ark`'s `tests/fixtures/testdata/decoding`, each carry a `fee` object with
-  `tax`, `required`, `declared`, and `gas_price`, and a deterministic signature. They are not in the SDK's npm package.
-- What a member signs in the first tranche is four messages: `MsgDelegate`, gov v1 `MsgVote`, `MsgSend`, and
-  `MsgWithdrawDelegatorReward`. `MsgSetPayee` is later scope, and a member signs nothing to receive a payment.
-- The first release's languages include no right-to-left script, so isolating addresses and origins from the text
-  around them is not a first-release concern.
-- ledger-ark publishes no device binary: its releases carry installers alone.
-
-## Settled
-
-- **The SDK calls the signer.** A feature hands its handle on the signer to the SDK's `signTx`, which builds the
-  document and asks the signer for the signature, as every Cosmos client does with its wallet. The SDK's `Signer`
-  interface is implemented as it stands, and nothing is added to it.
-- **The signer reviews what is signed, and never reads the fee quote.** A signature commits to the messages and the
-  fee ceiling and to nothing else, so those are what the signer reviews. How the ceiling divides into tax, gas, and
-  tip is the chain's figure, in the SDK's fee quote.
-- **One quote, shown and then signed.** With every denomination open the ceiling is not what is charged, so the
-  division is shown where the member approves, and it is the division of the fee that is signed. The feature runs
-  the SDK's three steps: `prepareTx` prices the transaction and signs nothing; the feature attaches the quote to its
-  request and hands the transaction that was prepared to `signTx`, which signs it as it stands and asks the node
-  nothing; and `broadcastTx` sends what was signed. The signer hands the attachment to the review screen beside its
-  review and does not read it, and the screen shows the quote only when its declared fee is the document's ceiling
-  ([fees and broadcast](../../app/README.md#fees-and-broadcast)). This is designed for every denomination from the
-  start, not for the first tranche's NOAH alone. The three steps are in the SDK from 0.4.0, which the signer pins.
-- **An amino document is decoded by the SDK, and proved by encoding it again.** The SDK has the reverse of its
-  amino encoder, `decodeAminoSignDoc`, driven by the same schemas, so one implementation reads every message type.
-  The signer encodes what was decoded with the SDK's `makeAminoSignDoc` and refuses unless the bytes are those it was
-  asked to sign, so a fault in the decoder stops a signature and never shows a member something other than what is
-  signed. Review then reads typed messages whichever encoding arrived: one reading, with no second reader to keep in
-  step.
-- **Several transactions at once need no sequence.** Actions that belong together are one transaction of several
-  messages: one review and one signature. Independent transactions from a device key are sent unordered, which the
-  chain allows: each expires at a timestamp in place of holding a sequence, so none can take another's and nothing is
-  signed twice. A Ledger signs ordered transactions alone until its device app accepts an unordered document, and
-  there a transaction refused for its sequence is prepared again, never signed again unseen: the three steps sign
-  once, and the SDK's `sendTx` signs a second time only when asked to. One approval signs one document, so a retry
-  would be a second review of what the member took for one action.
 
 ## The shape of the package
 
@@ -131,22 +75,43 @@ signature; and each refusal above has a test.
 
 ### 2. Transaction review
 
-Waits on nothing: it is built on the SDK as pinned, 0.4.0, which has the amino decoder ([settled](#settled)).
+Waits on nothing: it is built on the SDK as pinned, 0.4.0, which has the amino decoder and prepares, signs, and
+broadcasts a transaction as three steps.
 
+- The SDK's `Signer`: `accounts`, `signDirect`, and `signAmino`, implemented as the interface stands, with nothing
+  added to it. A feature hands its handle on the signer to the SDK's `signTx`, which builds the document and asks the
+  signer for the signature, as every Cosmos client does with its wallet. Direct is refused for an adapter that signs
+  amino alone.
 - The decoding fixtures synced here from the ark tag the pinned SDK names, with a check in CI that the copy is that
-  tag's.
-- Review over the SDK's `decodeMessage`, the same for both encodings: a summary for each of the four member messages;
+  tag's, since the SDK's npm package does not carry them. They are 85 transactions in `ark`'s
+  `tests/fixtures/testdata/decoding`, each with its direct and its amino document, a `fee` object, and a
+  deterministic signature.
+- Review over the SDK's `decodeMessage`, the same for both encodings: a summary for each of the four messages a
+  member signs in the first tranche, `MsgDelegate`, gov v1 `MsgVote`, `MsgSend`, and `MsgWithdrawDelegatorReward`;
   any other known type shown as its type URL and the chain's JSON view, labelled as not summarised; an unknown type
-  URL shown as unknown; a contract payload shown as unverified.
-- An amino document decoded to its body and fee by the SDK, encoded again, and refused unless the bytes are those the
-  signer was asked to sign; its body is then reviewed as a direct document's is.
-- The fee section: the declared fee, shown as the ceiling it is, each denomination apart.
-- An unordered document shown with the time it is valid until.
+  URL shown as unknown; a contract payload shown as unverified. `MsgSetPayee` is later scope, and a member signs
+  nothing to receive a payment.
+- An amino document decoded to its body and fee by the SDK's `decodeAminoSignDoc`, the reverse of its amino encoder
+  and driven by the same schemas, so one implementation reads every message type. The signer encodes what was decoded
+  with the SDK's `makeAminoSignDoc` and refuses unless the bytes are those it was asked to sign, so a fault in the
+  decoder stops a signature and never shows a member something other than what is signed. The body is then reviewed
+  as a direct document's is: one reading, with no second reader to keep in step.
+- The fee section: the declared fee, shown as the ceiling it is, each denomination apart. A signature commits to the
+  messages and the ceiling and to nothing else, so those are what the signer reviews. How the ceiling divides into
+  tax, gas, and tip is the chain's figure, in the SDK's fee quote, which the signer never reads.
 - An attachment: a value a feature attaches to its request, handed to `present` beside the review and never read by
-  the signer. It is how a fee quote reaches the review screen.
+  the signer. It is how a fee quote reaches the review screen. With every denomination open the ceiling is not what
+  is charged, so the division is shown where the member approves, and it is the division of the fee that is signed:
+  the feature prices the transaction with `prepareTx`, which signs nothing, attaches the quote, and hands the
+  transaction that was prepared to `signTx`, which signs it as it stands and asks the node nothing. The screen shows
+  the quote only when its declared fee is the document's ceiling
+  ([fees and broadcast](../../app/README.md#fees-and-broadcast)). This is built for every denomination from the
+  start, not for the first tranche's NOAH alone.
+- An unordered document shown with the time it is valid until. Independent transactions from a device key are sent
+  unordered, which the chain allows: each expires at a timestamp in place of holding a sequence, so none can take
+  another's and nothing is signed twice. Actions that belong together are one transaction of several messages: one
+  review and one signature.
 - A document for a chain other than the signer's network, or naming an account the signer does not hold, is refused.
-- The SDK's `Signer`: `accounts`, `signDirect`, and `signAmino`, with direct refused for an adapter that signs amino
-  alone.
 
 Done: every transaction fixture signed through the pipeline, in each mode, reproduces its signature and its bytes;
 the direct and the amino document of every fixture give the same review model; an amino document that does not encode
@@ -157,8 +122,18 @@ type and an unordered document each have a test.
 ### 3. The Ledger adapter
 
 `ledger/`, exported as `@ararat-network/signer/ledger`. TypeScript over an injected transport, so it needs no app.
-It waits on two things from ledger-ark: an emulator test that a `sign/MsgSignData` document parses and displays, and
-device binaries attached to its releases with their checksums. [Decision a](#decisions) is due here.
+It waits on two things from ledger-ark:
+
+- An emulator test that a `sign/MsgSignData` document, whose chain ID is empty, parses and displays. An account on a
+  Ledger signs up and vouches with it, and the [signup protocol](SIGNUP_PROTOCOL.md#5-signature) says the device shows
+  the document, but nothing in ledger-ark's source, documents, or emulator tests covers one.
+- Device binaries attached to its releases with their checksums, for the emulator job here. Its releases carry
+  installers alone.
+
+The Ledger JS package is Zondax's `@zondax/ledger-cosmos-js` as published, and needs no fork: ledger-ark forked the
+device app alone, and its emulator tests drive that app with the package unmodified. It is CommonJS and returns DER
+signatures with nothing said of low S. Whether the adapter uses it or a small client of its own is
+[decision a](#decisions), due here.
 
 - Derives at `m/44'/330'/0'/0/0` with the `ark` prefix, confirms the address on the device at first use, and signs in
   amino alone.
@@ -168,6 +143,9 @@ device binaries attached to its releases with their checksums. [Decision a](#dec
 - Refuses before sending what the device would refuse: an unordered document or one with a timeout timestamp, which
   are outside the device's closed list of root keys, and a document past its buffer. A Ledger account therefore sends
   ordered transactions alone, until ledger-ark's device app accepts those two keys.
+- A transaction refused for its sequence is prepared again and reviewed again, never signed again unseen. One approval
+  signs one document, so a retry is a second review of what the member took for one action: the three steps sign
+  once, and the SDK's `sendTx` signs a second time only when asked to.
 
 Done: unit tests on recorded exchanges pass, and a CI job signs fixture amino documents and a signup vector on the
 emulator, each signature verified against the emulator's key.
@@ -201,7 +179,8 @@ second, stricter implementation before Swift and Kotlin are written to it.
 
 The handoff protocol waits for the web client, as the repository's build order has it. `i18n` is a package of its own:
 its first form, the English strings, the check against `REVIEW_LABELS` and the refusal kinds, and a pseudo-locale, can
-land any time after stage 1.
+land any time after stage 1. The first release's languages include no right-to-left script, so isolating addresses and
+origins from the text around them is not a first-release concern.
 
 ## Decisions
 
