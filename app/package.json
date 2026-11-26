@@ -17,12 +17,13 @@
     "check:android": "expo run:android --variant release --no-bundler && ./scripts/check-native.sh android",
     "prebuild": "expo prebuild --clean --no-install",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test '{src,modules}/**/*.test.ts'",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@ararat-network/signer": "link:../signer",
     "@expo/log-box": "58.0.15",
     "@expo/metro-runtime": "58.0.17",
     "expo": "58.0.26",

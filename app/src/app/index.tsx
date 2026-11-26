@@ -1,29 +1,23 @@
-// The scaffold's one screen: it calls the native module once and says whether
-// native code answered. It is here to show that the app builds, links, and
-// calls Swift, Kotlin, and C, and it goes when the first real screen arrives.
+// The scaffold's one screen: it asks the signer's keystore to check its core
+// once and says what it found. It is here to show that the app builds, links,
+// and calls the keystore's Swift, Kotlin, and C from a sibling package, and
+// it goes when the first real screen arrives.
+import { checkKeystore, KEYSTORE_MODULE, type KeystoreNative } from "@ararat-network/signer/keystore";
+import { requireOptionalNativeModule } from "expo";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { judge, NativeCheck, PROBE, utf8 } from "../../modules/native-check";
-import { type StringKey, strings } from "../strings";
-
-function checkNative(): StringKey {
-  if (!NativeCheck) return "scaffold.native.unavailable";
-  try {
-    return judge(NativeCheck.reverse(utf8(PROBE))) === "ok" ? "scaffold.native.ok" : "scaffold.native.mismatch";
-  } catch {
-    return "scaffold.native.mismatch";
-  }
-}
+import { keystoreStatus } from "../keystore-status";
+import { strings } from "../strings";
 
 export default function Scaffold() {
-  // Once, when the screen first renders: the call is synchronous and has nothing to wait for.
-  const [result] = useState(checkNative);
+  // Once, when the screen first renders: the check is synchronous and has nothing to wait for.
+  const [status] = useState(() => keystoreStatus(checkKeystore(requireOptionalNativeModule<KeystoreNative>(KEYSTORE_MODULE))));
   return (
     <View style={styles.screen}>
       <Text style={styles.title}>{strings["scaffold.title"]}</Text>
-      <Text style={styles.label}>{strings["scaffold.native"]}</Text>
-      <Text style={styles.value} testID="native-check-result">
-        {strings[result]}
+      <Text style={styles.label}>{strings["scaffold.keystore"]}</Text>
+      <Text style={styles.value} testID="keystore-check-result">
+        {strings[status]}
       </Text>
     </View>
   );

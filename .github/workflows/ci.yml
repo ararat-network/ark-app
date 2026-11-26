@@ -74,6 +74,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm fixtures:check
 
+  signer-secp256k1:
+    name: "signer: libsecp256k1 is the pinned release"
+    needs: changes
+    if: needs.changes.outputs.signer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # Fetches the release at the tag in keystore/native/SECP256K1_VERSION, refuses a tag that is not the commit
+      # named beside it, and fails unless the copy the keystore is built from is that release's, file for file.
+      - run: pnpm secp256k1:check
+
   signer-test:
     name: "signer: type check and tests (Node ${{ matrix.node }})"
     needs: changes
@@ -139,7 +159,8 @@ jobs:
   app-test:
     name: "app: type check and tests (Node ${{ matrix.node }})"
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    # The app type-checks against the signer's source, so a change to either package runs this.
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.signer == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -161,12 +182,13 @@ jobs:
 
   # The two jobs below generate the native project from the app's config,
   # build it, install it on a simulator or an emulator, start it, and fail
-  # unless the device's log shows the native module answering: Swift and C on
-  # iOS, Kotlin and the same C on Android.
+  # unless the device's log shows the signer's keystore passing its check
+  # there: Swift on iOS and Kotlin on Android, over the one C core. The native
+  # code they build is the signer's, so a change to either package runs them.
   app-ios:
     name: "app: builds and calls native code on iOS"
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.signer == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     defaults:
@@ -192,7 +214,7 @@ jobs:
   app-android:
     name: "app: builds and calls native code on Android"
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.signer == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -228,7 +250,7 @@ jobs:
   ci:
     # The main ruleset requires this check by name.
     name: ci
-    needs: [changes, signer-lint, signer-fixtures, signer-test, signer-ledger, app-lint, app-test, app-ios, app-android]
+    needs: [changes, signer-lint, signer-fixtures, signer-secp256k1, signer-test, signer-ledger, app-lint, app-test, app-ios, app-android]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

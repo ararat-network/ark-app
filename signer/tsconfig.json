@@ -13,5 +13,5 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "ledger"]
+  "include": ["src", "ledger", "keystore"]
 }

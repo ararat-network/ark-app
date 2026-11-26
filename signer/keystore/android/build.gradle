@@ -1,0 +1,31 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'network.ararat.ark.keystore'
+version = '0.0.0'
+
+android {
+  namespace "network.ararat.ark.keystore"
+  defaultConfig {
+    versionCode 1
+    versionName "0.0.0"
+  }
+  // The C core in ../native, built with the NDK the app's own build names, so every native library in the app
+  // shares one C runtime.
+  if (rootProject.hasProperty("ndkVersion")) {
+    ndkVersion rootProject.ext.ndkVersion
+  }
+  externalNativeBuild {
+    cmake {
+      path "CMakeLists.txt"
+      // Named, so the build takes this CMake from the Android SDK, fetching it if it must, and never whichever
+      // `cmake` happens to be on the PATH.
+      version "3.22.1"
+    }
+  }
+  lintOptions {
+    abortOnError false
+  }
+}

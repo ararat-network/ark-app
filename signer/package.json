@@ -8,7 +8,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./ledger": "./ledger/index.ts"
+    "./ledger": "./ledger/index.ts",
+    "./keystore": "./keystore/index.ts"
   },
   "packageManager": "pnpm@12.5.1",
   "engines": {
@@ -17,8 +18,10 @@
   "scripts": {
     "fixtures:sync": "./scripts/sync-fixtures.sh",
     "fixtures:check": "./scripts/sync-fixtures.sh && ./scripts/check-clean.sh testdata/decoding",
+    "secp256k1:sync": "./scripts/sync-secp256k1.sh",
+    "secp256k1:check": "./scripts/sync-secp256k1.sh && ./scripts/check-clean.sh keystore/native/secp256k1",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test 'src/**/*.test.ts' 'ledger/*.test.ts'",
+    "test": "node --import tsx --test 'src/**/*.test.ts' 'ledger/*.test.ts' 'keystore/*.test.ts'",
     "test:emulator": "./scripts/fetch-ledger-binaries.sh && node --import tsx --test --test-concurrency=1 'ledger/emulator/*.emu.ts'",
     "test:emulator:record": "RECORD=1 pnpm test:emulator && ./scripts/check-clean.sh testdata/ledger",
     "lint": "biome check .",
