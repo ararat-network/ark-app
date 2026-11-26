@@ -15,12 +15,20 @@ import {
   type KeyHardware,
   type KeyProtection,
   KeystoreError,
+  type KeystoreEvent,
   type KeystoreNative,
   type KeystorePrompt,
-  type KeystoreSeedPhraseView,
   type KeystoreUnavailable,
   keystoreErrorOf,
   type NativeKey,
+  SEED_PHRASE_CHECKS,
+  SEED_PHRASE_HIDDEN,
+  SEED_PHRASE_TYPING,
+  SEED_PHRASE_WORDS,
+  type SeedPhraseChange,
+  type SeedPhraseCheck,
+  type SeedPhraseHidden,
+  type SeedPhraseWord,
 } from "./native.ts";
 
 const SIGNATURE_LENGTH = 64;
@@ -62,16 +70,42 @@ export interface DeviceKeystore {
   /** Destroys the key. With no backup it is gone for good, so the caller has made sure of one. */
   remove(): Promise<void>;
   /**
-   * Has the native view draw the key's 24 words, after the member authenticates. They are drawn by native code and
-   * never reach JavaScript. It rejects with a KeystoreError: `screen_captured` while the screen is recorded or
-   * mirrored, and the kinds a signature is refused with.
+   * Opens the key's seed phrase, after the member authenticates, for the word pieces on the app's screen to draw.
+   * The words are drawn by native code and never reach JavaScript. It rejects with a KeystoreError:
+   * `screen_captured` while the screen is recorded or mirrored, and the kinds a signature is refused with.
    */
-  showSeedPhrase(view: KeystoreSeedPhraseView): Promise<void>;
+  showSeedPhrase(): Promise<void>;
+  /** Closes it: the word pieces draw nothing. */
+  hideSeedPhrase(): Promise<void>;
+  /** Hears that the seed phrase stopped being shown with nobody asking, and why. The answer stops the hearing. */
+  onSeedPhraseHidden(listener: (reason: SeedPhraseHidden) => void): () => void;
+
+  /** Moves the entry to a position, from 0: back to a word, to change it. */
+  moveEntry(position: number): Promise<void>;
+  /** Hears what the word being typed is, and how many of the list's words begin with it. */
+  onEntryChange(listener: (change: SeedPhraseChange) => void): () => void;
+  /** Hears that a word was taken, where the entry moved on to, and how many positions hold a word. */
+  onEntryWord(listener: (word: SeedPhraseWord) => void): () => void;
+  /** Whether what is entered is the seed phrase of the key held. It asks nothing of the member. */
+  checkSeedPhrase(): Promise<SeedPhraseCheck>;
+  /**
+   * The positions, from 0, at which what is entered is not the held key's seed phrase, after the member
+   * authenticates, in order: none when it is right. It rejects with the kinds a signature is refused with.
+   */
+  seedPhraseMistakes(): Promise<readonly number[]>;
+  /**
+   * Stores the key the entered seed phrase stands for: how a member's key reaches a new phone. It rejects with a
+   * KeystoreError: `invalid_seed_phrase` when what is entered is not one, `exists` while a key is held, and the
+   * kinds `create` rejects with.
+   */
+  restoreFromSeedPhrase(): Promise<DeviceKey>;
+  /** Forgets everything entered. */
+  clearEntry(): Promise<void>;
   /**
    * Stores the key a seed's 24 words stand for, in a development build alone: how a test loads a key it knows.
    * It rejects as `failed` in any other build, which has no call that takes words from JavaScript.
    */
-  restoreDevelopmentKey(words: string): Promise<DeviceKey>;
+  restoreDevelopmentKey(seedPhrase: string): Promise<DeviceKey>;
   /** The key as the signer's pipeline takes it. */
   readonly adapter: KeyAdapter;
 }
@@ -109,7 +143,28 @@ function refusalOf(error: KeystoreError): SignerRefusal {
   }
 }
 
+const isPosition = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n < SEED_PHRASE_WORDS;
+const isCount = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0;
+/** One named part of what an event carries, or undefined where it carries no such part. */
+const field = (payload: unknown, name: string): unknown =>
+  typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>)[name] : undefined;
+
+/** A native call, with whatever it throws read as a KeystoreError. */
+async function calling<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (thrown) {
+    throw keystoreErrorOf(thrown);
+  }
+}
+
 export function deviceKeystore(native: KeystoreNative, options: DeviceKeystoreOptions): DeviceKeystore {
+  /** Listens for one of the module's events, with a payload native code sent and this file has yet to check. */
+  const hearing = (event: KeystoreEvent, listener: (payload: unknown) => void): (() => void) => {
+    const listening = native.addListener(event, listener);
+    return () => listening.remove();
+  };
+
   const key = async (): Promise<DeviceKey | null> => {
     let held: NativeKey | null;
     try {
@@ -190,12 +245,50 @@ export function deviceKeystore(native: KeystoreNative, options: DeviceKeystoreOp
         throw keystoreErrorOf(thrown);
       }
     },
-    async showSeedPhrase(view: KeystoreSeedPhraseView): Promise<void> {
-      try {
-        await view.show(options.prompt("seed_phrase"));
-      } catch (thrown) {
-        throw keystoreErrorOf(thrown);
+    async showSeedPhrase(): Promise<void> {
+      await calling(() => native.openSeedPhrase(options.prompt("seed_phrase")));
+    },
+    async hideSeedPhrase(): Promise<void> {
+      await calling(() => native.closeSeedPhrase());
+    },
+    onSeedPhraseHidden(listener: (reason: SeedPhraseHidden) => void): () => void {
+      return hearing("onSeedPhraseClosed", (payload) => {
+        const reason = field(payload, "reason");
+        if (isOneOf(SEED_PHRASE_HIDDEN, reason)) listener(reason);
+      });
+    },
+    async moveEntry(position: number): Promise<void> {
+      await calling(() => native.moveEntry(position));
+    },
+    onEntryChange(listener: (change: SeedPhraseChange) => void): () => void {
+      return hearing("onEntryChange", (payload) => {
+        const [position, typing, suggestions] = [field(payload, "position"), field(payload, "typing"), field(payload, "suggestions")];
+        if (isPosition(position) && isOneOf(SEED_PHRASE_TYPING, typing) && isCount(suggestions)) listener({ position, typing, suggestions });
+      });
+    },
+    onEntryWord(listener: (word: SeedPhraseWord) => void): () => void {
+      return hearing("onEntryWord", (payload) => {
+        const [position, next, entered] = [field(payload, "position"), field(payload, "next"), field(payload, "entered")];
+        if (isPosition(position) && isPosition(next) && isCount(entered) && entered <= SEED_PHRASE_WORDS) listener({ position, next, entered });
+      });
+    },
+    async checkSeedPhrase(): Promise<SeedPhraseCheck> {
+      const answer = await calling(() => native.checkEntry());
+      if (!isOneOf(SEED_PHRASE_CHECKS, answer)) throw new KeystoreError("failed", `the native keystore reported a check it does not have: ${String(answer)}`);
+      return answer;
+    },
+    async seedPhraseMistakes(): Promise<readonly number[]> {
+      const positions = await calling(() => native.entryMistakes(options.prompt("seed_phrase")));
+      if (!Array.isArray(positions) || !positions.every(isPosition) || new Set(positions).size !== positions.length) {
+        throw new KeystoreError("failed", "the native keystore reported mistakes that are no positions of a seed phrase");
       }
+      return [...positions].sort((a, b) => a - b);
+    },
+    async restoreFromSeedPhrase(): Promise<DeviceKey> {
+      return checked(await calling(() => native.restoreFromEntry(options.prompt("restore"))));
+    },
+    async clearEntry(): Promise<void> {
+      await calling(() => native.clearEntry());
     },
     async restoreDevelopmentKey(words: string): Promise<DeviceKey> {
       if (typeof native.restoreSeedPhrase !== "function")

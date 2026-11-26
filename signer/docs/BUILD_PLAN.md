@@ -74,10 +74,10 @@ English diagnostic a member never reads; what a member reads is a string resourc
 
 ## Stages
 
-### 4. The device keystore, with its backups
+### 4. The device keystore, with its seed phrase
 
 `keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin, over a C core.
-It is built in six pull requests, of which the first four are done:
+It is built in five pull requests, and all five are done:
 
 1. The platforms' documentation read against the design
    ([what the platforms document](../README.md#what-the-platforms-document)).
@@ -87,30 +87,23 @@ It is built in six pull requests, of which the first four are done:
 3. Protection at rest ([README](../README.md#protection-at-rest)): the seed made in native code and encrypted under
    the hardware key, authentication for each signature, the two kinds of key, the refusals, and the key adapter the
    pipeline signs through, checked on the simulator and the emulator in CI.
-4. Backup B, the seed phrase, shown ([README](../README.md#the-seed-phrase)): its 24 words read back into a seed in
-   the C,
-   a native view that draws them, so that they never reach JavaScript, and a key stored from its words, which only a
+4. The seed phrase, shown ([README](../README.md#the-seed-phrase)): its 24 words read back into a seed in the C,
+   drawn by native code, so that they never reach JavaScript, and a key stored from its seed phrase, which only a
    development build takes from JavaScript and which is how the device check holds a phone to a key it knows.
-5. Backup B, the seed phrase, entered: a native view the member types its words into, which restores from them and
-   checks them against the key held, with nothing of them in JavaScript.
-6. Backup A.
+5. The seed phrase at signup ([README](../README.md#backup-and-recovery)): shown a few words at a time and entered
+   word by word, to confirm it, to check it later, and to restore from it, through native pieces small enough that
+   the app lays them out: one word, the field, one of the words offered. The design of signup is not known yet, and
+   these decide none of it.
 
-The order was A alone, with B left to the staking flow that offers it. It is B first: the keystore can show and take
-the words from the start, they need no cloud, no key derivation, and no new dependency, everything of them runs on
-the simulator and the emulator, and storing a key from a seed is the half of A's restore that A then need not build.
-When the app offers B is still the app's to decide, and is not decided by this.
-
-What is left, in 5 and 6:
-
-- **A native view for entering the seed phrase.** A text field of the platform's own, with its suggestions and learning
-  off, which says how many words it holds and whether they are a seed's and never what they are. It restores a key
-  from them, as a new key is stored, and says whether they are the words of the key held, which is the check that a
-  member wrote them down. The core already reads a text as words and says which word is not of the list.
-- **Backup option A** in the same module: the seed encrypted under a key derived by Argon2id from a backup secret
-  the member chooses, kept in the platform account's keychain, and restored through the same storing of a seed. A
-  phone that still holds its key sets a new backup secret with no need of the old one.
+The backup was to be both, a cloud copy at signup and the seed phrase later. It is the seed phrase alone, written
+down and confirmed as part of signup, as a Ledger's is: the cloud copy is not built, and the README's
+[backup and recovery](../README.md#backup-and-recovery) says why and what would bring it back.
 
 What is left that no pull request closes:
+
+- **The order at signup is the app's to keep**, and is written in its README: the key is made, its seed phrase shown
+  and confirmed, and only then is the address submitted. The keystore gives the app what it needs to hold that
+  order, a key it can remove and a confirmation it can wait for, and does not enforce it. It is built with signup.
 
 - **[The phone checklist](KEYSTORE_PHONE_CHECKLIST.md) has not been run.** Nothing of the keystore has run on a
   phone: that the hardware key is in the Secure Enclave or StrongBox, authentication on iOS at all, a real
@@ -123,7 +116,8 @@ What is left that no pull request closes:
 - **The app's own line for Face ID** is in the app's configuration, in English, until `i18n` holds it.
 - **iOS gives an app no way to refuse a screenshot.** The view that draws the words clears them when a recording or
   mirroring starts and when the app is left, and Android leaves them out of screenshots altogether; a screenshot
-  taken on an iPhone while they are drawn holds them. The app's screen says so to the member.
+  taken on an iPhone while they are drawn holds them. Drawn a few at a time, as they are to be at signup, one
+  screenshot holds a few words and not the key.
 
 Done: wrap and unwrap are tested on both platforms; with a known seed restored the module's signatures equal the
 SDK's byte for byte, on the simulator and the emulator, and the core's are held by the host tests to the signup
@@ -153,5 +147,5 @@ origins from the text around them is not a first-release concern.
 
 None is open. Those taken are written where they bear: the Ledger JS dependency in the
 [README's adapters](../README.md#adapters), and React Native tooling, backup and recovery, and the keystore's own in
-[stage 4](#4-the-device-keystore-with-backup-a) and in the README's
+[stage 4](#4-the-device-keystore-with-its-seed-phrase) and in the README's
 [keystore per platform](../README.md#keystore-per-platform) and [backup and recovery](../README.md#backup-and-recovery).

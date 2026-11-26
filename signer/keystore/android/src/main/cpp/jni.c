@@ -92,3 +92,32 @@ Java_network_ararat_ark_keystore_Core_seedFromPhraseNative(JNIEnv *env, jobject 
   ark_keystore_wipe(made, sizeof made);
   return status;
 }
+
+// How many words of the list begin with the letters, and where the first of them is in the list.
+JNIEXPORT jintArray JNICALL
+Java_network_ararat_ark_keystore_Core_wordsBeginningNative(JNIEnv *env, jobject self, jbyteArray letters) {
+  (void)self;
+  char copy[16];
+  jint answer[2] = {0, -1};
+  jsize length = letters == NULL ? 0 : (*env)->GetArrayLength(env, letters);
+  // Longer than any word of the list begins nothing, and is not read.
+  if (length > 0 && (size_t)length < sizeof copy) {
+    int first = -1;
+    (*env)->GetByteArrayRegion(env, letters, 0, length, (jbyte *)copy);
+    copy[length] = '\0';
+    answer[0] = ark_keystore_words_beginning(copy, &first);
+    answer[1] = first;
+    ark_keystore_wipe(copy, sizeof copy);
+  }
+  jintArray found = (*env)->NewIntArray(env, 2);
+  if (found != NULL) (*env)->SetIntArrayRegion(env, found, 0, 2, answer);
+  return found;
+}
+
+// The word at a place in the list, or null where the list has none. The list is published, and no secret.
+JNIEXPORT jstring JNICALL
+Java_network_ararat_ark_keystore_Core_wordNative(JNIEnv *env, jobject self, jint index) {
+  (void)self;
+  const char *word = ark_keystore_word(index);
+  return word == NULL ? NULL : (*env)->NewStringUTF(env, word);
+}

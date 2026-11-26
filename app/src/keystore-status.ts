@@ -1,7 +1,16 @@
 // The strings for what the keystore says: its check, the key it holds, the
 // prompt it shows, and why a call was refused. Apart from the screen so that
 // they are tested with no device.
-import type { DeviceKey, KeystoreCheck, KeystoreErrorKind, KeystorePrompt, KeystorePromptPurpose, SeedPhraseHidden } from "@ararat-network/signer/keystore";
+import type {
+  DeviceKey,
+  KeystoreCheck,
+  KeystoreErrorKind,
+  KeystorePrompt,
+  KeystorePromptPurpose,
+  SeedPhraseCheck,
+  SeedPhraseHidden,
+  SeedPhraseTyping,
+} from "@ararat-network/signer/keystore";
 import { type StringKey, strings } from "./strings";
 
 const STATUS: Record<KeystoreCheck, StringKey> = {
@@ -33,6 +42,21 @@ export function keystorePrompt(purpose: KeystorePromptPurpose): KeystorePrompt {
 /** The string for why the native view cleared the words itself. */
 export function seedPhraseHiddenString(reason: SeedPhraseHidden): StringKey {
   return `scaffold.result.seed_phrase_hidden.${reason}`;
+}
+
+/** The string for what an entered seed phrase is, held against the key. */
+export function seedPhraseCheckString(check: SeedPhraseCheck): StringKey {
+  return `scaffold.result.entry.${check}`;
+}
+
+/** The string for what the word being typed is. */
+export function seedPhraseTypingString(typing: SeedPhraseTyping): StringKey {
+  return `scaffold.entry.typing.${typing}`;
+}
+
+/** A string with its named places filled: `{position}` by the value given as `position`. */
+export function fill(key: StringKey, values: Record<string, string | number>): string {
+  return strings[key].replace(/\{(\w+)\}/g, (place, name: string) => (name in values ? String(values[name]) : place));
 }
 
 /** The string for what stopped a keystore call: by its kind where it has one of the keystore's, and the general one otherwise. */

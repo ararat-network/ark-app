@@ -7,9 +7,20 @@ import {
   KEYSTORE_ERRORS,
   KEYSTORE_PROMPT_PURPOSES,
   KeystoreError,
+  SEED_PHRASE_CHECKS,
   SEED_PHRASE_HIDDEN,
+  SEED_PHRASE_TYPING,
 } from "@ararat-network/signer/keystore";
-import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, seedPhraseHiddenString } from "./keystore-status";
+import {
+  fill,
+  keyStatus,
+  keystoreErrorString,
+  keystorePrompt,
+  keystoreStatus,
+  seedPhraseCheckString,
+  seedPhraseHiddenString,
+  seedPhraseTypingString,
+} from "./keystore-status";
 import { type StringKey, strings } from "./strings";
 
 const has = (key: string): key is StringKey => key in strings && strings[key as StringKey].length > 0;
@@ -68,4 +79,20 @@ test("every reason the words are hidden for has a string of its own", () => {
   const keys = SEED_PHRASE_HIDDEN.map(seedPhraseHiddenString);
   assert.equal(new Set(keys).size, SEED_PHRASE_HIDDEN.length);
   for (const key of keys) assert.ok(has(key), key);
+});
+
+test("what an entered seed phrase is, and what the word being typed is, each have a string of their own", () => {
+  const checks = SEED_PHRASE_CHECKS.map(seedPhraseCheckString);
+  assert.equal(new Set(checks).size, SEED_PHRASE_CHECKS.length);
+  for (const key of checks) assert.ok(has(key), key);
+  const typing = SEED_PHRASE_TYPING.map(seedPhraseTypingString);
+  assert.equal(new Set(typing).size, SEED_PHRASE_TYPING.length);
+  for (const key of typing) assert.ok(has(key), key);
+});
+
+test("a string's named places are filled, and one with no value is left as it is written", () => {
+  assert.equal(fill("scaffold.entry.position", { position: 7, total: 24 }), "Word 7 of 24");
+  assert.equal(fill("scaffold.result.entry.mistakes", { positions: "3, 19" }), "Not right at: 3, 19");
+  assert.equal(fill("scaffold.entry.position", { position: 7 }), "Word 7 of {total}");
+  assert.equal(fill("scaffold.title", { position: 7 }), strings["scaffold.title"]);
 });

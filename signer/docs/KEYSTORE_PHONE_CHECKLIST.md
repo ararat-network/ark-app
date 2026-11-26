@@ -11,8 +11,8 @@ changes `keystore/`, and each run is written at the end with its date, the phone
 | --- | --- | --- |
 | The core | The build machine | Seeds, keys, and signatures against the SDK, the signup vectors, and the transaction fixtures, byte for byte |
 | The TypeScript | The build machine | The keystore over a native module in memory: every refusal, and every answer native code could give wrongly |
-| iOS | The Simulator | A seed made, encrypted under the Simulator's Secure Enclave, opened, and signed with, twice; a second key refused; the key removed. Then a key stored from published words, its signature the SDK's byte for byte, and its words drawn |
-| Android | An emulator | With no screen lock, a key refused as `no_passcode`. With a PIN, a key that takes the PIN made, and a prompt answered for making it and for each of two signatures. Then the same key from published words, and its words read off the screen |
+| iOS | The Simulator | A seed made, encrypted under the Simulator's Secure Enclave, opened, and signed with, twice; a second key refused; the key removed. Then a key stored from published words, its signature the SDK's byte for byte, and its words drawn; what is entered held against it, a wrong word found, and the key restored from what was entered |
+| Android | An emulator | With no screen lock, a key refused as `no_passcode`. With a PIN, a key that takes the PIN made, and a prompt answered for making it and for each of two signatures. Then the same as on the Simulator, each prompt answered, and the words read off the screen |
 
 ## What they cannot show
 
@@ -22,6 +22,8 @@ changes `keystore/`, and each run is written at the end with its date, the phone
 - **Invalidation.** That enrolling a fingerprint or face, or removing the passcode, ends the key, and what the phone
   says when it has.
 - **Android 9 and 10**, where a key takes biometrics alone and a phone without them is refused.
+- **A seed phrase typed by a person.** The checks enter it whole, by a call only a development build has. A phone's
+  own keyboard, what it offers and what it learns, and a finger on the words offered, are seen on a phone alone.
 - **The seed phrase kept from a recording.** That an iPhone clears it when a recording or mirroring starts, and that
   an Android phone leaves it out of a screenshot and of the picture among recent apps.
 
@@ -30,8 +32,10 @@ changes `keystore/`, and each run is written at the end with its date, the phone
 Install a build of the app on the phone: `pnpm ios --device` or `pnpm android --device` from `app/`, with the phone
 connected. The app's first screen is the scaffold. It shows the key on the phone, how it opens and what holds it, and
 has a button for each thing the keystore does: **Make a key**, **Sign a test message**, **Remove the key**, **Show
-the seed phrase**, and **Hide the seed phrase**. **Last result** says how the last one ended, and the seed phrase, the
-key's 24 words, is drawn at the foot of the screen.
+the seed phrase**, and **Hide the seed phrase**. **Last result** says how the last one ended. Under them the seed
+phrase, the key's 24 words, is drawn four words at a time, with **Previous words** and **Next words**; and under that
+is the field a seed phrase is entered into, with **Check against the key**, **Find the mistakes**, **Restore the key
+from it**, and **Clear what is entered**.
 
 Use a phone with no Ark key that matters on it: the list removes the key more than once.
 
@@ -68,6 +72,17 @@ Use a phone with no Ark key that matters on it: the list removes the key more th
     shown while the screen is being recorded or shared". The same with the screen mirrored to another display.
 15. **Take a screenshot** with the words drawn. It holds them: iOS gives an app no way to refuse one. Delete it.
 16. **With VoiceOver on**, each word is read with its number.
+17. **Next words** moves through the seed phrase four words at a time, to the 24th, with no second prompt.
+18. **Enter the seed phrase** from the paper. The keyboard offers no word of its own and corrects nothing. The words
+    of the list that begin with what is typed are offered under the field; a word is taken by touching one, by the
+    return key, or by a space, and the field moves to the next word. Typed fast, no letter is lost.
+19. **Check against the key** with all 24 entered: "It is this key's seed phrase". With one word changed, by
+    **Previous word**: "It is not this key's seed phrase", and **Find the mistakes** asks for the face, finger, or
+    passcode and names that word's number.
+20. **Remove the key**, then **Restore the key from it**: the key shown has the address it had. A phone's own build
+    restores this way and no other.
+21. **Enter a seed phrase, close the app, and open the keyboard elsewhere**, in Notes: the keyboard offers none of the
+    words that were entered.
 
 ## Android phone
 
@@ -97,6 +112,18 @@ Use a phone with no Ark key that matters on it: the list removes the key more th
 15. **Open recent apps** with the words drawn: the app's picture there is blank. Back in the app the words are gone,
     with "The seed phrase was hidden when the app was left".
 16. **With TalkBack on**, each word is read with its number.
+17. **Next words** moves through the seed phrase four words at a time, to the 24th, with no second prompt.
+18. **Enter the seed phrase** from the paper, with the phone's own keyboard. It offers no word of its own. The words
+    of the list that begin with what is typed are offered under the field; a word is taken by touching one, by the
+    keyboard's action key, or by a space, and the field moves to the next word. Typed fast, no letter is lost.
+19. **Check against the key** with all 24 entered: "It is this key's seed phrase". With one word changed, by
+    **Previous word**: "It is not this key's seed phrase", and **Find the mistakes** asks for the finger or the
+    screen lock and names that word's number.
+20. **Remove the key**, then **Restore the key from it**, which asks for the finger or the screen lock once: the key
+    shown has the address it had.
+21. **A screenshot taken with the entry field on the screen** is refused or blank.
+22. **Enter a seed phrase, close the app, and open the keyboard elsewhere**: it offers none of the words that were
+    entered.
 
 ## Runs
 

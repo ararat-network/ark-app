@@ -2,10 +2,11 @@ import ExpoModulesCore
 import Foundation
 
 // The keystore's iOS side, as JavaScript calls it. The seed's storage and
-// its uses are in SeedStore.swift, and the view that draws its 24 words in
-// ArkKeystoreSeedPhraseView.swift; this file turns their answers into what crosses
-// to JavaScript. No call here returns a seed, a key, or the words, and in a
-// build for a phone none takes them.
+// its uses are in SeedStore.swift, the seed phrase while it is shown in
+// SeedPhraseShown.swift, and one being entered in SeedPhraseEntry.swift; this
+// file turns their answers into what crosses to JavaScript. No call here
+// returns a seed, a key, or a word of the seed phrase, and in a build for a
+// phone none takes one.
 public class ArkKeystoreModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ArkKeystore")
@@ -44,32 +45,146 @@ public class ArkKeystoreModule: Module {
       try answering { try SeedStore.remove() }
     }
 
+    // What the module tells the app with nobody asking. None carries a word or a letter of one.
+    Events("onSeedPhraseClosed", "onEntryChange", "onEntryWord")
+
+    OnCreate {
+      SeedPhraseShown.shared.onClosed = { [weak self] reason in
+        self?.sendEvent("onSeedPhraseClosed", ["reason": reason])
+      }
+      SeedPhraseEntry.shared.onChange = { [weak self] change in
+        self?.sendEvent("onEntryChange", change)
+      }
+      SeedPhraseEntry.shared.onWord = { [weak self] word in
+        self?.sendEvent("onEntryWord", word)
+      }
+    }
+
+    // Opens the held key's seed phrase, after the member authenticates, for the word pieces on the screen to draw.
+    // It returns no word.
+    AsyncFunction("openSeedPhrase") { (prompt: KeystorePrompt, promise: Promise) in
+      SeedPhraseShown.shared.open(reason: prompt.reason, cancel: prompt.cancel, promise: promise)
+    }.runOnQueue(.main)
+
+    AsyncFunction("closeSeedPhrase") { () in
+      SeedPhraseShown.shared.close()
+    }.runOnQueue(.main)
+
+    // The entry of a seed phrase: where it is, and what is entered, held against the key. What is entered is
+    // returned by no call.
+    AsyncFunction("moveEntry") { (position: Int) in
+      SeedPhraseEntry.shared.move(to: position)
+    }.runOnQueue(.main)
+
+    AsyncFunction("checkEntry") { () -> String in
+      try answering { try SeedPhraseEntry.shared.check() }
+    }.runOnQueue(.main)
+
+    AsyncFunction("entryMistakes") { (prompt: KeystorePrompt, promise: Promise) in
+      SeedPhraseEntry.shared.mistakes(reason: prompt.reason, cancel: prompt.cancel, promise: promise)
+    }.runOnQueue(.main)
+
+    // Stores the key what is entered stands for. iOS asks for no authentication here, as it asks for none to make
+    // a key.
+    AsyncFunction("restoreFromEntry") { (_: KeystorePrompt) -> [String: Any] in
+      try answering { describe(try SeedPhraseEntry.shared.restore()) }
+    }.runOnQueue(.main)
+
+    AsyncFunction("clearEntry") { () in
+      SeedPhraseEntry.shared.clear()
+    }.runOnQueue(.main)
+
     #if targetEnvironment(simulator)
-      // Stores the key a seed's 24 words stand for. Only a build for the Simulator has this call, which is how a
-      // test loads a key it knows: no build for a phone takes words from JavaScript.
+      // The two calls that take a seed phrase from JavaScript: one stores a key from it, and one enters it whole.
+      // Only a build for the Simulator has them, where a test loads a key it knows and nothing can type into the
+      // field. No build for a phone takes a seed phrase from JavaScript.
       AsyncFunction("restoreSeedPhrase") { (seedPhrase: String, _: KeystorePrompt) -> [String: Any] in
         try answering { describe(try SeedStore.restore(seedPhrase: seedPhrase)) }
       }
+
+      AsyncFunction("fillEntry") { (seedPhrase: String) in
+        SeedPhraseEntry.shared.fill(seedPhrase)
+      }.runOnQueue(.main)
     #endif
 
-    // The view that draws the key's 24 words. They are drawn by it and returned by no call.
-    View(ArkKeystoreSeedPhraseView.self) {
-      Events("onHide")
-
-      Prop("wordColor") { (view: ArkKeystoreSeedPhraseView, color: String?) in
-        view.setWordColor(color)
+    // The piece that draws one word of the seed phrase, while it is open.
+    View(ArkKeystoreSeedPhraseWordView.self) {
+      Prop("position") { (view: ArkKeystoreSeedPhraseWordView, position: Int?) in
+        view.position = position ?? 0
       }
 
-      Prop("numberColor") { (view: ArkKeystoreSeedPhraseView, color: String?) in
-        view.setNumberColor(color)
+      Prop("color") { (view: ArkKeystoreSeedPhraseWordView, color: String?) in
+        view.update { $0.setColor(color) }
       }
 
-      AsyncFunction("show") { (view: ArkKeystoreSeedPhraseView, prompt: KeystorePrompt, promise: Promise) in
-        view.show(reason: prompt.reason, cancel: prompt.cancel, promise: promise)
+      Prop("fontSize") { (view: ArkKeystoreSeedPhraseWordView, size: Double?) in
+        view.update { $0.setFontSize(size) }
       }
 
-      AsyncFunction("hide") { (view: ArkKeystoreSeedPhraseView) in
-        view.hide()
+      Prop("fontWeight") { (view: ArkKeystoreSeedPhraseWordView, weight: String?) in
+        view.update { $0.setFontWeight(weight) }
+      }
+
+      Prop("textAlign") { (view: ArkKeystoreSeedPhraseWordView, alignment: String?) in
+        view.update { $0.setAlignment(alignment) }
+      }
+
+      OnViewDidUpdateProps { (view: ArkKeystoreSeedPhraseWordView) in
+        view.applyProps()
+      }
+    }
+
+    // The field a word of a seed phrase is typed into.
+    View(ArkKeystoreSeedPhraseFieldView.self) {
+      Prop("color") { (view: ArkKeystoreSeedPhraseFieldView, color: String?) in
+        view.update { $0.setColor(color) }
+      }
+
+      Prop("fontSize") { (view: ArkKeystoreSeedPhraseFieldView, size: Double?) in
+        view.update { $0.setFontSize(size ?? 24) }
+      }
+
+      Prop("fontWeight") { (view: ArkKeystoreSeedPhraseFieldView, weight: String?) in
+        view.update { $0.setFontWeight(weight ?? "medium") }
+      }
+
+      Prop("textAlign") { (view: ArkKeystoreSeedPhraseFieldView, alignment: String?) in
+        view.update { $0.setAlignment(alignment) }
+      }
+
+      OnViewDidUpdateProps { (view: ArkKeystoreSeedPhraseFieldView) in
+        view.applyProps()
+      }
+
+      AsyncFunction("focus") { (view: ArkKeystoreSeedPhraseFieldView) in
+        view.focus()
+      }
+    }
+
+    // The piece that draws one of the list's words that begin with what is typed, and takes it when touched.
+    View(ArkKeystoreSeedPhraseSuggestionView.self) {
+      Prop("index") { (view: ArkKeystoreSeedPhraseSuggestionView, index: Int?) in
+        view.index = index ?? 0
+      }
+
+      Prop("color") { (view: ArkKeystoreSeedPhraseSuggestionView, color: String?) in
+        view.update { $0.setColor(color) }
+      }
+
+      Prop("fontSize") { (view: ArkKeystoreSeedPhraseSuggestionView, size: Double?) in
+        view.update { $0.setFontSize(size) }
+      }
+
+      Prop("fontWeight") { (view: ArkKeystoreSeedPhraseSuggestionView, weight: String?) in
+        view.update { $0.setFontWeight(weight) }
+      }
+
+      Prop("textAlign") { (view: ArkKeystoreSeedPhraseSuggestionView, alignment: String?) in
+        view.update { $0.setAlignment(alignment) }
+      }
+
+      OnViewDidUpdateProps { (view: ArkKeystoreSeedPhraseSuggestionView) in
+        view.applyProps()
       }
     }
   }

@@ -80,10 +80,10 @@ Aligned with the direction's first two steps. Each step names what done looks li
 6. **Rehearsal.** The whole flow on the testnet with the daily comparison running: register, wait out the hold, receive
    the tenth, stake and vote it, from a device key and from a Ledger.
 
-Backup and the string resources are not steps: [backup](signer/README.md#backup-and-recovery) ships with the
-keystore in step 1, both options, and every string is a resource from step 1. The web client is not a step of
-the first tranche: its directory exists from the first commit, and it ships after the phone, on the handoff and the
-Ledger adapter the signer already has.
+Backup and the string resources are not steps: [the backup](signer/README.md#backup-and-recovery), the seed phrase a
+member writes down at signup, ships with the keystore in step 1, and every string is a resource from step 1. The web
+client is not a step of the first tranche: its directory exists from the first commit, and it ships after the phone,
+on the handoff and the Ledger adapter the signer already has.
 
 ## Security
 

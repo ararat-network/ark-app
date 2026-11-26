@@ -13,8 +13,7 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The review of a transaction, and the SDK's `Signer` | Built |
 | The device keystore's core: the seed to the key and the key to a signature, in C, linked into the phone app | Built |
 | The device keystore's protection at rest: the seed under the phone's hardware key, and each signature behind the member's authentication | Built, and run on the Simulator and an emulator; [the checks only a phone can make](docs/KEYSTORE_PHONE_CHECKLIST.md) have not been run |
-| The device keystore's seed phrase, shown: its 24 words read back into a seed in the C, and drawn for the member by a native view, never in JavaScript | Built, and run on the Simulator and an emulator; not on a phone |
-| The device keystore's seed phrase, entered, and its cloud backup | Designed |
+| The device keystore's seed phrase: drawn for the member by native pieces the app lays out, a few words at a time, and entered word by word, to confirm it, to check it later, and to restore from it, never in JavaScript | Built, and run on the Simulator and an emulator; not on a phone |
 | The Ledger adapter | Built |
 | The handoff protocol | Designed |
 
@@ -41,7 +40,8 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [ledger/emulator/](ledger/emulator/ledger.emu.ts) | The adapter's tests against the Ark device app on the emulator, with the ledger-ark release and the SHA-256 of each binary they load. |
 | [testdata/ledger/exchanges.json](testdata/ledger/exchanges.json) | Every command and answer of an emulator run, recorded. The adapter's unit tests replay them, and CI fails when a fresh run records anything else. |
 | [keystore/](keystore/index.ts) | The device keystore, exported as `@ararat-network/signer/keystore`: the key the phone holds and the key adapter over it ([keystore.ts](keystore/keystore.ts)), the native module's calls and the words it answers in ([native.ts](keystore/native.ts)), Swift in `ios/`, and Kotlin with its JNI entries in `android/`. |
-| [keystore/ios/ArkKeystoreSeedPhraseView.swift](keystore/ios/ArkKeystoreSeedPhraseView.swift), and its [Kotlin](keystore/android/src/main/java/network/ararat/ark/keystore/ArkKeystoreSeedPhraseView.kt) | The native view that draws the key's seed phrase, which the app places on its screen and which hands them to nothing. |
+| [keystore/ios/SeedPhraseShown.swift](keystore/ios/SeedPhraseShown.swift), and its [Kotlin](keystore/android/src/main/java/network/ararat/ark/keystore/SeedPhraseShown.kt) | The seed phrase while it is shown, and the native piece that draws one word of it. The app lays the pieces out, and they hand the words to nothing. |
+| [keystore/ios/SeedPhraseEntry.swift](keystore/ios/SeedPhraseEntry.swift), and its [Kotlin](keystore/android/src/main/java/network/ararat/ark/keystore/SeedPhraseEntry.kt) | A seed phrase being entered, with the native field a word is typed into and the piece that draws one of the words offered for it. It holds what is entered against the key and restores from it, and hands it to nothing. |
 | [keystore/device-check.ts](keystore/device-check.ts) | A check of the keystore that runs on a device, exported as `@ararat-network/signer/keystore/device-check`: it makes a key, signs with it, and removes it, and says what it found on one line each. |
 | [docs/KEYSTORE_PHONE_CHECKLIST.md](docs/KEYSTORE_PHONE_CHECKLIST.md) | What of the keystore only a phone can show, checked by hand, and each run of the list. |
 | [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the seed phrase's words and the reading of them, the derivation, and signing, with the command line in `test/` that the host tests drive. |
@@ -313,8 +313,8 @@ wraps it.
   libsecp256k1: Swift and Kotlin pass bytes through, since neither can be relied on to zeroise memory. JavaScript
   sees the address, the public key, and signatures.
 - **Not exported.** No call returns the seed, the key, or the words that stand for the seed. The words are drawn for
-  the member by a native view and reach nothing else ([the seed phrase](#the-seed-phrase)). The hardware key is bound to
-  the device and never leaves it; a new device gets a new one.
+  the member by native code and reach nothing else ([the seed phrase](#the-seed-phrase)). The hardware key is bound
+  to the device and never leaves it; a new device gets a new one.
 
 **What this does not protect, and the alternative.** The key is in the app's memory while it signs, so a phone whose
 operating system is compromised can read it then: the hardware protects the key at rest and gates its use, and no
@@ -426,36 +426,85 @@ or face, invalidation on iOS and what it is reported as, and Android 9 and 10 ar
 The seed is 256 bits as BIP-39 has them, so it is also 24 words: the seed phrase. A member who writes it down has the
 key wherever they go. Its words are the seed in another form, and are kept from JavaScript as the seed is.
 
-- **Drawn by native code.** `ArkKeystoreSeedPhraseView` is a view of Swift's and Kotlin's that the app places on its
-  screen like any other and asks to show the words. The member authenticates, the seed is opened as it is for a
-  signature, the C writes its words, and the view draws them, numbered, in three columns read downward. What comes
-  back to JavaScript is that it did. No call returns them
-  ([iOS](keystore/ios/ArkKeystoreSeedPhraseView.swift),
-  [Android](keystore/android/src/main/java/network/ararat/ark/keystore/ArkKeystoreSeedPhraseView.kt)).
-- **Cleared when they should not be seen.** The view clears the words when the app asks, when the app is left, and
-  when it leaves the screen, and tells the app when it did so itself. On Android the window is marked secure while
-  they are drawn, so the system leaves them out of screenshots, recordings, and the picture among recent apps. On
-  iOS the view refuses to draw them while the screen is recorded or mirrored, as `screen_captured`, and clears them
-  when that starts. iOS gives an app no way to refuse a screenshot, so one taken while they are drawn holds them.
-- **In memory while they are on the screen.** The C writes them into a buffer that is wiped, and the text a label
-  needs is the copy that remains until the view clears it. A screen reader reads each word with its number, as a
-  member who cannot see the screen needs.
-- **Read back in the C.** `ark_keystore_seed_from_phrase` takes a text and says whether it is a seed phrase: letters
-  in either case and any spacing, with the word that is not of the list named by its position, and a checksum that
-  does not hold told apart from a word that is wrong. A view for typing it in is built on it next.
-- **A key from its seed phrase, in a development build alone.** `restoreSeedPhrase` stores the key a seed phrase
-  stands for, as a new key is stored. A build for the Simulator has it, and an Android build made with
-  `arkKeystoreDevelopment`; no build for a phone has any call that takes a seed phrase from JavaScript. It is how the
-  device check loads a key it knows: it restores BIP-39's own published test words, checks the public key against the
-  SDK's, and compares the phone's signature with the SDK's over the same bytes, byte for byte.
+- **Small native pieces, laid out by the app.** Nothing native here is a screen, or a grid, or a list. There is a
+  piece that draws one word, a field one word is typed into, and a piece that draws one of the words offered for
+  what is typed. The app places them where its design wants them, among views of its own: the number beside a word,
+  the card around it, the border of the field. What the app does not know of the design yet, these do not decide.
+  A piece's text is drawn natively, so the app gives each its colour, size, weight, and alignment, and no more of
+  its look than that is native.
+- **Shown.** The app asks for the seed phrase to be opened; the member authenticates, as for a signature; the C
+  writes the words; and every word piece on the screen draws the word at its position. What comes back to
+  JavaScript is that it was opened. No call returns a word
+  ([iOS](keystore/ios/SeedPhraseShown.swift),
+  [Android](keystore/android/src/main/java/network/ararat/ark/keystore/SeedPhraseShown.kt)).
+- **A few at a time.** Which positions are on the screen is the app's: it puts up the pieces for the first four,
+  then the next. The member authenticates once, and the app moves through the positions with no further prompt
+  until the seed phrase is closed. On an iPhone, where a screenshot cannot be refused, one then holds a few words
+  and not the key.
+- **Closed when it should not be seen.** The seed phrase closes when the app asks, when the app is left, and when
+  no word piece is left on the screen, and the app is told when it closed by itself. On Android the window is
+  marked secure while it is open, so the system leaves the words out of screenshots, recordings, and the picture
+  among recent apps. On iOS it is refused while the screen is recorded or mirrored, as `screen_captured`, and closes
+  when that starts.
+- **In memory while it is open.** The C writes the words into a buffer that is wiped, and native code keeps them,
+  all 24 whichever are drawn, until the seed phrase is closed. A screen reader reads each word drawn; the number
+  beside it, and the order they are read in, are the app's to give.
+- **Entered a word at a time.** The field is the system's own, with the keyboard's suggestions, corrections, and
+  learning off. As letters are typed, the pieces for the words offered draw the words of the list that begin with
+  them. A word is taken by touching one, or by the return key or a space once the letters name a single word: four
+  letters name any word of the list. Native code keeps what is entered, and tells the app that a word was taken, at
+  which position, and how many are, and never a letter of it
+  ([iOS](keystore/ios/SeedPhraseEntry.swift),
+  [Android](keystore/android/src/main/java/network/ararat/ark/keystore/SeedPhraseEntry.kt)).
+- **It moves on by itself.** When a word is taken the entry goes to the next position at once, in native code, and
+  tells the app where it went. The letters a member types next are the next word's, however long JavaScript takes
+  to hear of it: an entry that waited for the app to move it lost them, when they were typed faster than the app
+  answered. The app moves the entry anywhere else, back to a word to change it.
+- **Held against the key.** A check says whether what is entered is the seed phrase of the key held: it reads the
+  entered words in the C and compares the public key they give with the one kept beside the encrypted seed, so it
+  asks nothing of the member and opens nothing. Another says at which positions it is not, after the member
+  authenticates, since that needs the seed phrase itself: positions and never words. They are the confirmation at
+  signup and the check a member is asked for again later.
+- **A key restored from it.** The key the entered seed phrase stands for is stored, as a new key is stored:
+  how a member's key reaches a new phone. What is entered is refused as `invalid_seed_phrase` when words are missing
+  or the checksum does not hold, before anything else is asked or changed.
+- **Read in the C.** `ark_keystore_seed_from_phrase` takes a text and says whether it is a seed phrase: letters in
+  either case and any spacing, with the word that is not of the list named by its position, and a checksum that
+  does not hold told apart from a word that is wrong. `ark_keystore_words_beginning` gives the words of the list
+  that begin with the letters typed.
+- **From JavaScript, in a development build alone.** `restoreSeedPhrase` stores a key from a seed phrase handed to
+  it, and `fillEntry` enters one whole. A build for the Simulator has them, and an Android build made
+  with `arkKeystoreDevelopment`; no build for a phone has any call that takes a seed phrase from JavaScript. They
+  are how the device check loads a key it knows and enters its seed phrase where nothing can type: it restores
+  BIP-39's own published test words, checks the public key against the SDK's, and compares the phone's signature
+  with the SDK's over the same bytes, byte for byte.
 
 **What has been run.** The core's reading of words is held against the SDK's on the build machine: every word of the
-list, the seeds' own words read back, and 600 random texts of 24 words agreeing with the SDK on whether their
-checksum holds. On the Simulator and an emulator, in CI, the app restores the published words, signs as the SDK
-signs, and has the view draw them; on the emulator the script then reads the screen's accessibility tree for the
-first and the last word. Seen by hand, once: the 24 words drawn on the Simulator, and cleared there when the app was
-left, with the app told why; and a screenshot taken on the emulator while they were drawn, which was blank. Not run:
-any of it on a phone, the clearing when an iOS recording starts, and the clearing when the app is left on Android.
+list, the seeds' own words read back, 600 random texts of 24 words agreeing with the SDK on whether their checksum
+holds, and the words that begin with what is typed, for a sample of every prefix. The TypeScript is tested over a
+native module in memory.
+
+On the Simulator and an emulator, in CI, a development build restores the published words, signs as the SDK signs,
+and opens the seed phrase for the word pieces on the scaffold's screen, where on the emulator the script reads the
+screen's accessibility tree for the first and the last word. It then holds an entered seed phrase against the key,
+right and with one word wrong, finds the wrong word's position, refuses to restore from nothing, and restores the
+key from what was entered. In CI the seed phrase is entered whole by the development build's own call, since
+nothing there can type.
+
+By hand, with the pieces as they are now. On the iOS 27.2 Simulator: the 24 words drawn each by its own piece, in a
+layout the scaffold made, four at a time and all at once, with the seed phrase staying open as the pieces on the
+screen changed; 23 words typed in one burst, each taken at its own position; the words offered for the letters of
+the 24th; and the one position not entered named as the mistake. On the Android 17 emulator: the words offered for
+letters typed; one of them touched and taken; three words typed in one burst, each taken at its own position; and
+letters that name several words left untaken by the action key.
+
+By hand, before the pieces were made smaller, and not since: a key restored from 24 typed words on the Simulator;
+the words cleared on the Simulator when the app was left, with the app told why; and a screenshot taken on the
+emulator while they were drawn, which was blank. The code under each is what it was, moved from a view into the
+state the pieces share.
+
+Not run: any of it on a phone, with a phone's own keyboard and a finger; the clearing when an iOS recording starts;
+and the clearing when the app is left on Android.
 
 ### What the platforms document
 
@@ -486,41 +535,55 @@ the phishing surface. The web client builds and reviews the transaction, then si
 ## Backup and recovery
 
 The stakes: registration is permanent, one grant per person, and moving a grant's payee needs the member's own
-signature. A member who loses the key with no backup loses the remaining payments and cannot register again. The
-member has never seen a key, so the backup cannot be theirs to invent.
+signature. A member who loses the key with no backup loses the remaining payments and cannot register again.
 
-| Option                 | How it works                                                                                                                                                                                                                                                                                           | Protects against                                       | Costs                                                                                                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. Cloud keychain blob | The seed encrypted under a key derived by Argon2id, with a random salt, from a backup secret the member chooses, stored in the platform account's keychain: iCloud Keychain, or Google's Block Store and app backup. It appears on a new device of the same account, and the backup secret unlocks it. | A lost phone or a new one                              | The backup secret can be forgotten; the platform is a wall, with no move between Apple and Google; the backup secret's strength is the blob's, so the app requires a long one, of several words, and not a PIN |
-| B. Seed phrase         | The seed shown as its 24 BIP-39 words, the seed phrase, with a check that the member wrote it down. It restores on any device and in any wallet on coin type 330.                                                                                                                                      | A lost phone, a lost platform account, leaving the app | The member keeps 24 words safe, who has never kept a key; shown at signup, it is the failure the first user is defined by                                                                                      |
-| C. Both                | A at signup; B offered once the first payment arrives and before the first stake.                                                                                                                                                                                                                      | Both                                                   | Two flows to build and explain                                                                                                                                                                                 |
+**The backup is the seed phrase, written down at signup, and there is no other.** Making it is part of joining, as it
+is of setting up a Ledger, so that a member knows from the first minute that they hold a key and that the paper is
+their membership.
 
-**Two things a member keeps, and two names for them.** The backup secret is A's: something the member makes up,
-which is not the key and opens nothing by itself, only the copy in their platform account. The seed phrase is B's:
-24 words the app makes, which are the key. The app and these documents call the first the backup secret and the
-second the seed phrase. The backup secret is never called a phrase, and the seed phrase is never called a secret, so
-that a member is not asked for one and gives the other.
+- **Shown a few words at a time.** Native pieces draw the seed phrase in parts, each word beside its number, and
+  the member writes each part down before the next. JavaScript says which positions are shown and never has what is
+  in them. On an iPhone, where a screenshot cannot be refused, one screenshot then holds a few words and not the key.
+- **Confirmed back, word by word.** The member enters the words again, in a field of the platform's own that
+  suggests from the 2048 words of the list, and is told only whether they are right.
+- **No address is registered until its seed phrase is confirmed.** Registration is for good, so nothing reaches the
+  chain for a key whose backup has not been shown to exist. A signup left before then registers nothing, and the
+  key made for it is removed.
+- **Checked again later.** From time to time the app asks the member to enter the seed phrase from the paper. The
+  check compares it with the public key the phone keeps, so it needs no authentication and draws nothing.
+- **It restores anywhere.** On a new phone, entered the same way, and in any wallet on coin type 330, a Ledger among
+  them, since the key is at the path they use.
 
-Decided: C. A at signup, since a lost phone during the hold must cost the member nothing but a restore, and B once
-there is something to protect and the member has seen a payment arrive, as the way out of the platform account and of
-the app. Neither Apple, Google, nor Ark can read the blob, and the hardware key is never backed up. The keystore keeps
-the whole 256-bit seed, not the derived key alone, so the seed phrase can be shown when B is offered.
+**What the paper does not solve.**
 
-B is built first, and A on it: the keystore shows the seed phrase today ([the seed phrase](#the-seed-phrase)), takes
-it back next, and A's restore then stores a seed the way B's does. That is the order of building. When the app offers
-B is the app's to decide: A is the only backup until a member has written the seed phrase down, so the app may offer
-it at signup to whoever wants it, and again before the first stake.
+- **Written is not kept.** The confirmation shows that the paper existed at signup. The later checks find a paper
+  that has gone missing while the phone still works, when a new one can still be written; nothing finds it after.
+- **The paper is the key, in the clear.** Whoever finds it has everything, and the app says so when it is written.
+- **The words are English.** BIP-39's English list is the one the Ledger and nearly every wallet take, so the seed
+  phrase is in it for every language the app is in. A member who does not read English copies it letter by letter,
+  and the confirmation is what catches a slip.
+- **Some members have nowhere safe to keep a paper.** For them this design has no answer.
 
-**A forgotten backup secret.** Nobody can reset it: the copy is encrypted under it, and neither Apple, Google, nor
-Ark holds anything that opens it. What that costs depends on what else the member still has.
+**What was weighed, and left out.**
 
-- **The phone still works.** Nothing is lost. The phone does not use the backup secret: it opens the seed with its
-  own hardware key. The member sets a new one, and the app encrypts a fresh copy under it and replaces the old.
-- **The phone is gone and the seed phrase is written down.** The member restores from it on a new phone and sets a
-  new backup secret there.
-- **The phone is gone and the seed phrase was never written down.** The key is gone. The remaining payments go with it,
-  and registration is permanent, so the member cannot register again. Nothing on the chain moves a member to a new
-  key.
+| Option | How it works | Protects against | Costs |
+| --- | --- | --- | --- |
+| A. Cloud keychain blob | The seed encrypted under a key derived by Argon2id, with a random salt, from a backup secret the member chooses, stored in the platform account's keychain: iCloud Keychain, or Google's Block Store and app backup. It appears on a new device of the same account, and the backup secret unlocks it. | A lost phone or a new one | A second way to the key that needs no phone: the platform account and a secret a person made up, guessed at offline by whoever holds the copy. It fails silently, by a forgotten secret or a keychain that never synced. The platform is a wall, with no move between Apple and Google |
+| B. Seed phrase | The seed shown as its 24 BIP-39 words, the seed phrase, with a check that the member wrote it down. It restores on any device and in any wallet on coin type 330. | A lost phone, a lost platform account, leaving the app | The member keeps a paper safe for years, who has never kept a key; signup is longer by the minutes it takes |
+| C. Both | A at signup; B offered once the first payment arrives and before the first stake. | Both | A's costs for every member, those who kept their paper among them; two flows to build and explain |
+
+Decided: B, at signup. It was C. A makes the key as safe as a platform account and a secret a person chose, for
+every member and for good; it is the most code in the keystore, a key derivation, a cipher, and a dependency on
+Google Play services, and the part of it that matters, the cloud, runs on no simulator. And a backup that is made
+for the member teaches them nothing of what they hold. A is not built. What would bring it back is members losing
+their papers, seen and not supposed, and then as something a member asks for and not as what every member is given.
+
+**Two names.** The seed phrase is the key's 24 words. If A is ever built, what the member makes up for it is the
+backup secret. The seed phrase is never called a secret, and a backup secret is never called a phrase, so that a
+member asked for one does not give the other.
+
+The hardware key is never backed up. The keystore keeps the whole 256-bit seed, not the derived key alone, which is
+what lets the seed phrase be shown.
 
 ## Permissions
 

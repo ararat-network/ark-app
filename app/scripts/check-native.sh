@@ -14,7 +14,8 @@
 # The check makes a key, signs with it twice, and removes it. Then, since
 # these are development builds, it stores a key from 24 published words, has
 # it sign what the SDK signs with the same key and compares the two byte for
-# byte, and has the native view draw the seed phrase.
+# byte, has the native view draw the seed phrase, and has the entry view hold
+# what is entered against the key, find a wrong word, and restore from it.
 #
 # On the Simulator the key has no authentication on it, since the Simulator
 # refuses every key that has: what is shown there is the seed made, encrypted
@@ -90,7 +91,7 @@ case "$platform" in
     # neither an earlier run's nor the log tool's own command line, which holds the same words, is taken for them.
     pid=$(xcrun simctl launch booted "$app_id" | awk '{print $NF}')
     await "ark-keystore self-check=1" 60
-    await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1" 90
+    await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1 entry=1" 90
     ;;
   android)
     read_log() {
@@ -130,7 +131,7 @@ case "$platform" in
       fi
       if [ "$seed_phrase_seen" -eq 0 ] && read_log | grep -F -q 'ark-keystore seed-phrase-shown=1'; then
         screen=$(adb exec-out uiautomator dump /dev/tty 2>/dev/null || true)
-        if printf '%s' "$screen" | grep -F -q 'content-desc="1, legal"' && printf '%s' "$screen" | grep -F -q 'content-desc="24, title"'; then
+        if printf '%s' "$screen" | grep -F -q 'text="legal"' && printf '%s' "$screen" | grep -F -q 'text="title"'; then
           seed_phrase_seen=1
           echo "the words are on the screen"
         fi
@@ -139,8 +140,8 @@ case "$platform" in
     launch
     # Whatever the emulator's key store calls itself: the image decides that, and the PIN is what is shown here.
     await "ark-keystore device-check=ok protection=passcode" 180
-    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 seed-phrase=1'; then
-      echo "the check passed without restoring a key or drawing its words: the build is not a development build" >&2
+    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 seed-phrase=1 entry=1'; then
+      echo "the check passed without restoring a key, drawing its seed phrase, or entering it: the build is not a development build" >&2
       exit 1
     fi
     if [ "$seed_phrase_seen" -ne 1 ]; then

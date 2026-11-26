@@ -12,6 +12,7 @@
 //   cli sign-with-key <key hex> <message hex>
 //   cli self-check
 //   cli generate                     a new seed and its public key
+//   cli beginning <letters>          the list's words that begin with the letters: count, first, then each
 //   cli read-seed-phrase <text>      the text read as a seed phrase: status, count, unknown, seed
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +68,14 @@ int main(int argc, char **argv) {
     return print_hex(out, ARK_PUBLIC_KEY_LENGTH);
   }
   if (argc < 3) return 2;
+  if (strcmp(command, "beginning") == 0) {
+    int first;
+    int count = ark_keystore_words_beginning(argv[2], &first);
+    printf("%d %d", count, first);
+    for (int i = 0; i < count; i++) printf(" %s", ark_keystore_word(first + i));
+    printf("\n");
+    return 0;
+  }
   if (strcmp(command, "read-seed-phrase") == 0) {
     uint8_t seed[ARK_SEED_LENGTH];
     int count, unknown;

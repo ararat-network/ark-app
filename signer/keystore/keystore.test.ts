@@ -198,40 +198,172 @@ test("a native rejection is read by its code, and anything else is a fault", () 
   assert.equal(keystoreErrorOf(already), already);
 });
 
-test("the words are drawn by the native view after a prompt, and what stops it is a kind", async () => {
+const PHRASE =
+  "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+
+test("the seed phrase is opened for the word pieces after a prompt, and what stops it is a kind", async () => {
   const native = fakeNative({ privateKey: randomPrivateKey() });
   const keystore = deviceKeystore(native, { prompt });
-  await keystore.showSeedPhrase(native.seedPhraseView);
-  assert.equal(native.seedPhraseView.shown, true);
+  await keystore.showSeedPhrase();
+  assert.equal(native.seedPhraseShown, true);
   assert.deepEqual(native.prompts, [prompt("seed_phrase")]);
+  await keystore.hideSeedPhrase();
+  assert.equal(native.seedPhraseShown, false);
 
-  await native.seedPhraseView.hide();
-  native.seedPhraseView.captured = true;
-  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "screen_captured");
-  native.seedPhraseView.captured = false;
+  native.captured = true;
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase())).kind, "screen_captured");
+  native.captured = false;
   native.failNext = nativeError("authentication_failed");
-  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "authentication_failed");
-  assert.equal(native.seedPhraseView.shown, false);
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase())).kind, "authentication_failed");
+  assert.equal(native.seedPhraseShown, false);
 
   native.invalidate();
-  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "key_invalidated");
-  const empty = fakeNative();
-  assert.equal((await keystoreError(() => deviceKeystore(empty, { prompt }).showSeedPhrase(empty.seedPhraseView))).kind, "no_key");
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase())).kind, "key_invalidated");
+  assert.equal((await keystoreError(() => deviceKeystore(fakeNative(), { prompt }).showSeedPhrase())).kind, "no_key");
 });
 
-test("a key is restored from its words in a development build alone", async () => {
-  const words =
-    "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+test("the app hears why the seed phrase closed by itself, until it stops listening, and nothing that is no reason", async () => {
+  const native = fakeNative({ privateKey: randomPrivateKey() });
+  const keystore = deviceKeystore(native, { prompt });
+  const heard: string[] = [];
+  const stop = keystore.onSeedPhraseHidden((reason) => heard.push(reason));
+
+  await keystore.showSeedPhrase();
+  native.closeByItself("background");
+  await keystore.showSeedPhrase();
+  native.closeByItself("capture");
+  for (const payload of [{ reason: "boredom" }, { reason: 7 }, {}, null, "background"]) native.send("onSeedPhraseClosed", payload);
+  assert.deepEqual(heard, ["background", "capture"]);
+
+  stop();
+  await keystore.showSeedPhrase();
+  native.closeByItself("background");
+  assert.deepEqual(heard, ["background", "capture"]);
+});
+
+test("a key is restored from a seed phrase handed over in a development build alone", async () => {
   const phone = deviceKeystore(fakeNative({ hardware: "strongbox" }), { prompt });
-  assert.equal((await keystoreError(() => phone.restoreDevelopmentKey(words))).kind, "failed");
+  assert.equal((await keystoreError(() => phone.restoreDevelopmentKey(PHRASE))).kind, "failed");
   assert.equal(await phone.key(), null);
 
   const native = fakeNative({ available: "none", hardware: "software", development: true });
   const keystore = deviceKeystore(native, { prompt });
-  const key = await keystore.restoreDevelopmentKey(words);
+  const key = await keystore.restoreDevelopmentKey(PHRASE);
   assert.equal(key.address, publicKeyToAddress(key.publicKey));
   assert.deepEqual(native.prompts, [prompt("restore")]);
   assert.deepEqual(await keystore.key(), key);
-  assert.equal((await keystoreError(() => keystore.restoreDevelopmentKey(words))).kind, "exists");
-  assert.equal((await keystoreError(() => deviceKeystore(fakeNative({ development: true }), { prompt }).restoreDevelopmentKey("not words"))).kind, "failed");
+  assert.equal((await keystoreError(() => keystore.restoreDevelopmentKey(PHRASE))).kind, "exists");
+  assert.equal(
+    (await keystoreError(() => deviceKeystore(fakeNative({ development: true }), { prompt }).restoreDevelopmentKey("not words"))).kind,
+    "invalid_seed_phrase",
+  );
+});
+
+test("the entry moves on by itself as words are taken, and the app hears where it is and never a letter", async () => {
+  const native = fakeNative();
+  const keystore = deviceKeystore(native, { prompt });
+  const changes: unknown[] = [];
+  const words: unknown[] = [];
+  const stopChanges = keystore.onEntryChange((change) => changes.push(change));
+  const stopWords = keystore.onEntryWord((word) => words.push(word));
+
+  native.type("le");
+  native.enter("legal");
+  native.enter("winner");
+  assert.deepEqual(changes, [{ position: 0, typing: "typing", suggestions: 1 }]);
+  assert.deepEqual(words, [
+    { position: 0, next: 1, entered: 1 },
+    { position: 1, next: 2, entered: 2 },
+  ]);
+  assert.equal(native.entryPosition, 2, "moved by the native side, before the app said anything");
+
+  // Back to a word, to change it: the app moves the entry, and the word taken there moves it on again.
+  await keystore.moveEntry(0);
+  native.enter("zoo");
+  assert.deepEqual(words.at(-1), { position: 0, next: 1, entered: 2 });
+  await keystore.moveEntry(99);
+  assert.equal(native.entryPosition, 23, "no further than the last word");
+
+  // What native code sends is checked: an event that is not what it must be is not passed on.
+  const [before, beforeWords] = [changes.length, words.length];
+  for (const payload of [
+    { position: 24, typing: "typing", suggestions: 1 },
+    { position: 0, typing: "shouting", suggestions: 1 },
+    { position: 0, typing: "typing" },
+    null,
+  ]) {
+    native.send("onEntryChange", payload);
+  }
+  for (const payload of [{ position: 0, next: 24, entered: 1 }, { position: 0, next: 1, entered: 25 }, { position: -1, next: 0, entered: 1 }, "word"]) {
+    native.send("onEntryWord", payload);
+  }
+  assert.equal(changes.length, before);
+  assert.equal(words.length, beforeWords);
+
+  stopChanges();
+  stopWords();
+  native.type("x");
+  native.enter("abandon");
+  assert.equal(changes.length, before);
+  assert.equal(words.length, beforeWords);
+});
+
+test("what a member enters is held against the key: right, wrong, and unfinished", async () => {
+  const native = fakeNative({ development: true });
+  const keystore = deviceKeystore(native, { prompt });
+  await keystore.restoreDevelopmentKey(PHRASE);
+
+  assert.equal(await keystore.checkSeedPhrase(), "incomplete");
+  for (const word of PHRASE.split(" ")) native.enter(word);
+  assert.equal(await keystore.checkSeedPhrase(), "match");
+  assert.deepEqual(await keystore.seedPhraseMistakes(), []);
+
+  await keystore.moveEntry(6);
+  native.enter("worthy");
+  await keystore.moveEntry(2);
+  native.enter("legal");
+  assert.equal(await keystore.checkSeedPhrase(), "no_match");
+  assert.deepEqual(await keystore.seedPhraseMistakes(), [2, 6], "the positions that are wrong, in order");
+
+  // Checking asks nothing of the member; finding the mistakes asks them to authenticate, each time.
+  assert.deepEqual(native.prompts, [prompt("restore"), prompt("seed_phrase"), prompt("seed_phrase")]);
+});
+
+test("what stops the mistakes being found is a kind, and an answer that is no positions is a fault", async () => {
+  const native = fakeNative({ development: true });
+  const keystore = deviceKeystore(native, { prompt });
+  assert.equal((await keystoreError(() => keystore.seedPhraseMistakes())).kind, "no_key");
+  await keystore.restoreDevelopmentKey(PHRASE);
+  native.failNext = nativeError("authentication_failed");
+  assert.equal((await keystoreError(() => keystore.seedPhraseMistakes())).kind, "authentication_failed");
+
+  for (const answer of [[24], [-1], [1.5], [3, 3], ["3"], "3", null]) {
+    native.entryMistakes = async () => answer as number[];
+    assert.equal((await keystoreError(() => keystore.seedPhraseMistakes())).kind, "failed", JSON.stringify(answer));
+  }
+  native.checkEntry = async () => "probably";
+  assert.equal((await keystoreError(() => keystore.checkSeedPhrase())).kind, "failed");
+});
+
+test("a key is restored from the seed phrase a member entered, and from nothing less", async () => {
+  const native = fakeNative({ available: "passcode", hardware: "strongbox" });
+  const keystore = deviceKeystore(native, { prompt });
+  const words = PHRASE.split(" ");
+
+  for (const word of words.slice(0, 23)) native.enter(word);
+  assert.equal((await keystoreError(() => keystore.restoreFromSeedPhrase())).kind, "invalid_seed_phrase");
+  native.enter("zoo");
+  assert.equal((await keystoreError(() => keystore.restoreFromSeedPhrase())).kind, "invalid_seed_phrase", "24 words whose checksum fails");
+  assert.equal(await keystore.key(), null);
+
+  native.enter("title");
+  const key = await keystore.restoreFromSeedPhrase();
+  assert.equal(key.hardware, "strongbox", "a phone's own build restores, from what was entered and from nothing JavaScript holds");
+  assert.deepEqual(await keystore.key(), key);
+  assert.equal(await keystore.checkSeedPhrase(), "match");
+  assert.equal((await keystoreError(() => keystore.restoreFromSeedPhrase())).kind, "exists");
+
+  await keystore.clearEntry();
+  assert.equal(await keystore.checkSeedPhrase(), "incomplete");
+  assert.equal(native.entryPosition, 0);
 });

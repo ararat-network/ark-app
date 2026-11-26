@@ -16,8 +16,10 @@ is rewritten as what is once it is built.
 
 The scaffold is the app with nothing in it yet. It has one screen, which asks the signer's
 [keystore](../signer/README.md#protection-at-rest) to check its core, shows the key the phone holds, and has a button
-for each thing the keystore does: make a key, sign a test message, remove the key, and show its seed phrase, which the
-keystore's own native view draws and the app's JavaScript never has. It exists to show that the pieces
+for each thing the keystore does: make a key, sign a test message, remove the key, show its seed phrase a few words
+at a time, and enter a seed phrase to check it against the key or to restore from it. The keystore's native pieces
+draw each word and take each word, the scaffold lays them out as any screen of the app will, and the app's
+JavaScript never has a word of the seed phrase. It exists to show that the pieces
 every later step needs are in place: the native projects generated from [app.json](app.json), the signer taken by
 path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both platforms and runs
 the keystore there. It is also how the keystore is
@@ -41,9 +43,19 @@ and is no member's: nothing registers it.
   Attest on iOS, Play Integrity on Android), verify a phone number, then name the member who vouches or pass the
   identity check once it exists. The app then generates the key, signs the membership service's challenge through the
   signer's sign-arbitrary call, and submits the address with the proof of possession
-  ([signup protocol](../signer/docs/SIGNUP_PROTOCOL.md)). An existing member
+  ([signup protocol](../signer/docs/SIGNUP_PROTOCOL.md)). Between the key and the address is the seed phrase, below.
+  An existing member
   vouches from the same app, signing the vouch document for the admission they are answering. The cheap signals price a
   fake in effort and name nobody; the service verifies them, the app only collects them.
+- **The seed phrase, as part of signup.** Once the key is made, the member writes down its seed phrase, the key's 24
+  words, and that is their one backup ([backup and recovery](../signer/README.md#backup-and-recovery)). The
+  keystore's native pieces show it a few words at a time, the member enters it back word by word, and only when it is
+  confirmed does the app submit the address: registration is for good, so nothing is registered for a key whose
+  backup has not been shown to exist. A member who leaves before then has registered nothing, and the app removes
+  the key. The screens are the app's own, in React Native: the keystore gives it a native piece for one word, a field
+  to type one into, and a piece for one of the words offered, and the app lays them out as its design has it. The
+  app says what the paper is, the membership itself, and that whoever has it has the key. Later it asks the member
+  to check the paper against the phone from time to time. None of the words is ever in the app's JavaScript.
 - **The grant view.** The grant as the member sees it, from the Disbursement module's `Member`, `Grant`, and
   `GrantJournal` queries: amount, paid and remaining, the schedule, the next payment and when, the member's status, and
   the end of the two-week hold before the first tenth.
@@ -148,8 +160,8 @@ projects, what is built is fixed by the pinned Expo SDK and the app's config, wh
 
 ### What the app holds
 
-- The seed, wrapped as in [the keystore](../signer/README.md#keystore-per-platform), and under option A the backup blob
-  in the platform keychain.
+- The seed, wrapped as in [the keystore](../signer/README.md#keystore-per-platform), and no copy of it anywhere
+  else: the member's backup is the seed phrase on their own paper.
 - The member's address and public key.
 - The membership session, a token the service issues and binds as the service decides, and the Apple or Google
   sign-in token during signup.
@@ -158,8 +170,8 @@ projects, what is built is fixed by the pinned Expo SDK and the app's config, wh
 
 ### What it never holds
 
-- A plaintext seed, key, or seed phrase at rest. The seed phrase is drawn by the keystore's native view and is never in
-  the app's JavaScript, on the screen or off it.
+- A plaintext seed, key, or seed phrase at rest. The seed phrase is drawn by the keystore's native pieces and is never
+  in the app's JavaScript, on the screen or off it.
 - The phone number after its verification, or anything else that names a person. What the service keeps is its own
   design, and nothing in it names a person either
   ([identity data](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#identity-data)).
@@ -230,7 +242,8 @@ it into the system's prompt, and clears it when it ends, so it is run on an emul
 matters. The Android check also builds with the Gradle property `arkKeystoreDevelopment`, without which the
 keystore refuses an emulator's key store, which has no hardware behind it, and takes no key from its words. With it,
 and on the Simulator, the check goes on to store a key from published words, compare its signature with the SDK's,
-and have the keystore's native view draw the words.
+open the seed phrase for the word pieces on the screen, and hold an entered seed phrase against the key, find a
+wrong word, and restore from it.
 
 Five things about the build that are not obvious:
 

@@ -125,16 +125,15 @@ test("the words the check restores from are a seed's, and published", () => {
   assert.equal(DEVICE_CHECK_SEED_PHRASE.split(" ").length, 24);
 });
 
-test("a development build is also held to a key the check knows: restored, signed with as the SDK signs, and its words drawn", async () => {
+test("a development build is also held to a key the check knows: restored, signed with as the SDK signs, shown, entered, and restored again", async () => {
   const native = fakeNative({ available: "none", hardware: "software", development: true });
   const lines: string[] = [];
   let waited = 0;
   const passed = await checkOnDevice(native, {
     prompt,
     log: (line) => lines.push(line),
-    seedPhraseView: () => native.seedPhraseView,
     whileSeedPhraseShown: async () => {
-      assert.equal(native.seedPhraseView.shown, true, "the words are drawn while the check waits");
+      assert.equal(native.seedPhraseShown, true, "the seed phrase is open while the check waits");
       waited += 1;
     },
   });
@@ -149,19 +148,36 @@ test("a development build is also held to a key the check knows: restored, signe
     "ark-keystore seed-phrase-shown=1",
     "ark-keystore seed-phrase-hidden=1",
     "ark-keystore restore-refused=exists",
-    "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1",
+    "ark-keystore entered-matches=1",
+    "ark-keystore prompt=mistakes",
+    "ark-keystore entered-mistake=23",
+    "ark-keystore entry-restore-refused=invalid_seed_phrase",
+    "ark-keystore prompt=restore",
+    "ark-keystore restored-from-entry=1",
+    "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1 entry=1",
   ]);
   assert.equal(waited, 1);
-  assert.equal(native.seedPhraseView.shown, false);
-  assert.equal(await native.key(), null, "the restored key is removed again");
+  assert.equal(native.seedPhraseShown, false);
+  assert.equal(await native.key(), null, "nothing is left behind");
+  assert.deepEqual(native.entered, [], "and nothing entered");
 });
 
-test("a development build whose screen has no words view is checked without it", async () => {
+test("an entry that calls a wrong seed phrase right fails the check, which removes the key", async () => {
   const native = fakeNative({ development: true });
+  native.checkEntry = async () => "match";
+  const lines: string[] = [];
+  assert.equal(await checkOnDevice(native, { prompt, log: (line) => lines.push(line) }), false);
+  assert.equal(lines.at(-1), "ark-keystore device-check=failed find the mistake in an entered seed phrase: a seed phrase with a wrong word, entered, is match");
+  assert.equal(await native.key(), null);
+});
+
+test("a build that can be handed a key and no entry is checked without the entry", async () => {
+  const native = fakeNative({ development: true });
+  native.fillEntry = undefined;
   const lines: string[] = [];
   assert.ok(await checkOnDevice(native, { prompt, log: (line) => lines.push(line) }));
-  assert.equal(lines.at(-1), "ark-keystore device-check=ok protection=biometric hardware=secure_enclave restored=1");
-  assert.ok(!lines.some((line) => line.includes("seed-phrase-shown")));
+  assert.ok(!lines.some((line) => line.includes("entered-")));
+  assert.equal(lines.at(-1), "ark-keystore device-check=ok protection=biometric hardware=secure_enclave restored=1 seed-phrase=1");
 });
 
 test("a restored key that signs otherwise than the SDK fails the check, which removes it", async () => {
@@ -180,11 +196,11 @@ test("a restored key that signs otherwise than the SDK fails the check, which re
   assert.equal(await native.key(), null);
 });
 
-test("words that are not drawn fail the check at that step, by the kind, and the restored key is removed", async () => {
+test("a seed phrase that is not opened fails the check at that step, by the kind, and the restored key is removed", async () => {
   const native = fakeNative({ development: true });
-  native.seedPhraseView.captured = true;
+  native.captured = true;
   const lines: string[] = [];
-  assert.equal(await checkOnDevice(native, { prompt, log: (line) => lines.push(line), seedPhraseView: () => native.seedPhraseView }), false);
+  assert.equal(await checkOnDevice(native, { prompt, log: (line) => lines.push(line) }), false);
   assert.match(lines.at(-1) ?? "", /^ark-keystore device-check=failed draw the seed phrase: screen_captured: /);
   assert.equal(await native.key(), null);
 });

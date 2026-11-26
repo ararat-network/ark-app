@@ -10,7 +10,7 @@
 import { isLowS, privateKeyFromMnemonic, publicKeyFromPrivate, signMessage, toHex, utf8Encode, verifyMessage } from "@ararat-network/sdk";
 import { SignerRefusal } from "../src/refusal.ts";
 import { type DeviceKey, type DeviceKeystore, deviceKeystore, type KeystorePromptPurpose } from "./keystore.ts";
-import { KeystoreError, type KeystoreNative, type KeystorePrompt, type KeystoreSeedPhraseView, keystoreErrorOf } from "./native.ts";
+import { KeystoreError, type KeystoreNative, type KeystorePrompt, keystoreErrorOf, SEED_PHRASE_WORDS } from "./native.ts";
 
 /** The words every line of the check begins with: what a script looks for in the device's log. */
 export const DEVICE_CHECK_PREFIX = "ark-keystore";
@@ -26,9 +26,10 @@ export interface DeviceCheckOptions {
   prompt(purpose: KeystorePromptPurpose): KeystorePrompt;
   /** Takes each line as it is known. */
   log(line: string): void;
-  /** The native view that draws the words, where the screen has one mounted. */
-  seedPhraseView?(): KeystoreSeedPhraseView | null | undefined;
-  /** Waits while the words are drawn, so that whoever is checking the screen can read them; nothing by default. */
+  /**
+   * Waits while the seed phrase is open, so that whoever is checking the screen can read the words its pieces draw;
+   * nothing by default.
+   */
   whileSeedPhraseShown?(): Promise<void>;
 }
 
@@ -164,27 +165,75 @@ export async function checkOnDevice(native: KeystoreNative | null | undefined, o
       if (toHex(signature) !== toHex(signMessage(message, known))) throw new Error("the signature is not the one the SDK makes with the same key");
       say("signed-as-sdk=1");
 
-      const view = options.seedPhraseView?.();
-      if (view) {
-        step = "draw the seed phrase";
-        say("prompt=seed-phrase");
-        await keystore.showSeedPhrase(view);
-        say("seed-phrase-shown=1");
-        await options.whileSeedPhraseShown?.();
-        await view.hide();
-        say("seed-phrase-hidden=1");
-      }
+      // The seed phrase is opened for the word pieces on the screen to draw, and closed again. What they draw is
+      // not something this check can read: whoever is watching the screen does.
+      step = "draw the seed phrase";
+      say("prompt=seed-phrase");
+      await keystore.showSeedPhrase();
+      say("seed-phrase-shown=1");
+      await options.whileSeedPhraseShown?.();
+      await keystore.hideSeedPhrase();
+      say("seed-phrase-hidden=1");
 
       step = "restore while a key is held";
       const twice = await refused("restoring over a key", () => keystore.restoreDevelopmentKey(DEVICE_CHECK_SEED_PHRASE));
       say(`restore-refused=${twice}`);
       if (twice !== "exists") throw new Error(`restoring over a key was refused as ${twice}, not as exists`);
 
+      // What a member enters is held against the key: right, with one word wrong, and with nothing entered. A
+      // development build enters a whole seed phrase at once, where nothing can type.
+      const fill = native.fillEntry?.bind(native);
+      if (fill) {
+        step = "check an entered seed phrase";
+        const words = DEVICE_CHECK_SEED_PHRASE.split(" ");
+        await fill(DEVICE_CHECK_SEED_PHRASE);
+        const right = await keystore.checkSeedPhrase();
+        if (right !== "match") throw new Error(`the key's own seed phrase, entered, is ${right}`);
+        say("entered-matches=1");
+
+        step = "find the mistake in an entered seed phrase";
+        const wrongAt = SEED_PHRASE_WORDS - 1;
+        // Another word of the list in the last place: of the list, and not the key's.
+        await fill([...words.slice(0, wrongAt), words[0] ?? ""].join(" "));
+        const wrong = await keystore.checkSeedPhrase();
+        if (wrong !== "no_match") throw new Error(`a seed phrase with a wrong word, entered, is ${wrong}`);
+        say("prompt=mistakes");
+        const mistakes = await keystore.seedPhraseMistakes();
+        if (mistakes.length !== 1 || mistakes[0] !== wrongAt)
+          throw new Error(`the mistake at ${wrongAt} was reported at ${mistakes.join(",") || "no position"}`);
+        say(`entered-mistake=${wrongAt}`);
+
+        step = "check with nothing entered";
+        await keystore.clearEntry();
+        const nothing = await keystore.checkSeedPhrase();
+        if (nothing !== "incomplete") throw new Error(`nothing entered is ${nothing}`);
+        const unfinished = await refused("restoring from nothing", () => keystore.restoreFromSeedPhrase());
+        say(`entry-restore-refused=${unfinished}`);
+        if (unfinished !== "invalid_seed_phrase") throw new Error(`restoring from nothing was refused as ${unfinished}, not as invalid_seed_phrase`);
+      }
+
       step = "remove the restored key";
       await keystore.remove();
       made = false;
       if ((await keystore.key()) !== null) throw new Error("a key is held after the restored one was removed");
-      restored = view ? " restored=1 seed-phrase=1" : " restored=1";
+      restored = " restored=1 seed-phrase=1";
+
+      if (fill) {
+        // The way a member's key reaches a new phone: entered, and stored from what was entered.
+        step = "restore from an entered seed phrase";
+        await fill(DEVICE_CHECK_SEED_PHRASE);
+        say("prompt=restore");
+        const fromEntry = await keystore.restoreFromSeedPhrase();
+        made = true;
+        if (toHex(fromEntry.publicKey) !== toHex(publicKeyFromPrivate(known)))
+          throw new Error("the key restored from what was entered is not the SDK's for the same words");
+        say("restored-from-entry=1");
+        await keystore.clearEntry();
+        await keystore.remove();
+        made = false;
+        if ((await keystore.key()) !== null) throw new Error("a key is held after the one restored from entry was removed");
+        restored += " entry=1";
+      }
     }
 
     say(`device-check=ok protection=${key.protection} hardware=${key.hardware}${restored}`);
