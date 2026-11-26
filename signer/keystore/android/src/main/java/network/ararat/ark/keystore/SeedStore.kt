@@ -111,7 +111,7 @@ internal class SeedStore private constructor(private val context: Context) {
       val text = seedPhrase.toByteArray(Charsets.UTF_8)
       try {
         val status = Core.seedFromPhraseNative(text, seed, publicKey)
-        if (status != Core.SEED_PHRASE_OK) throw KeystoreFailure("failed", "the text is not a seed's 24 words: status $status")
+        if (status != Core.SEED_PHRASE_OK) throw KeystoreFailure("invalid_seed_phrase", "the text is not a seed phrase: status $status")
       } finally {
         text.fill(0)
       }
@@ -127,6 +127,23 @@ internal class SeedStore private constructor(private val context: Context) {
       seed.fill(0)
     }
     store(activity, prompt, done, read)
+  }
+
+  /**
+   * Whether a text is the seed phrase of the key held. It opens nothing and asks nothing of the member: the public
+   * key the text gives is held against the one kept beside the encrypted seed.
+   */
+  fun matches(seedPhrase: String): Boolean {
+    val record = read() ?: return false
+    val text = seedPhrase.toByteArray(Charsets.UTF_8)
+    val seed = ByteArray(Core.SEED_LENGTH)
+    val publicKey = ByteArray(Core.PUBLIC_KEY_LENGTH)
+    try {
+      return Core.seedFromPhraseNative(text, seed, publicKey) == Core.SEED_PHRASE_OK && publicKey.contentEquals(record.publicKey)
+    } finally {
+      text.fill(0)
+      seed.fill(0)
+    }
   }
 
   /** Stores a seed under a new Keystore key. `fill` writes the seed and its public key into the arrays it is given. */

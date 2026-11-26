@@ -59,6 +59,18 @@ int ark_keystore_seed_phrase(const uint8_t seed[ARK_SEED_LENGTH], char phrase[AR
 // Either may be NULL.
 int ark_keystore_seed_from_phrase(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown);
 
+// The words of the list that begin with the letters given, which is what a
+// field offers a member who is typing one. The list is in alphabetical
+// order, so they are a run of it: the answer is how many there are, and
+// `first` is where the run begins. Letters are taken in either case. Nothing
+// begins with what is no letters, with what is longer than a word, or with
+// what holds anything but letters.
+#define ARK_WORD_LIST_SIZE 2048
+int ark_keystore_words_beginning(const char *letters, int *first);
+
+// The word at a place in the list, from 0, or NULL where the list has none.
+const char *ark_keystore_word(int index);
+
 // Zeroes what held a seed, in a way a compiler does not remove. Swift and
 // Kotlin call it on the one buffer each of them hands a seed through.
 void ark_keystore_wipe(void *bytes, size_t length);

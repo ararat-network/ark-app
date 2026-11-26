@@ -33,10 +33,44 @@ export const KEYSTORE_UNAVAILABLE = [
 ] as const;
 export type KeystoreUnavailable = (typeof KEYSTORE_UNAVAILABLE)[number];
 
+/** How many words a seed phrase has. */
+export const SEED_PHRASE_WORDS = 24;
+
 /**
- * The name of the native view that draws the key's 24 words: what the app asks Expo for, beside the module's name.
+ * The names of the native pieces a seed phrase is drawn and entered with: what the app asks Expo for, beside the
+ * module's name. Each is small, so that the app lays them out as it likes: a piece that draws one word, the field a
+ * word is typed into, and a piece that draws one of the words offered for what is typed. Swift and Kotlin draw what
+ * is in them, and nothing of it crosses to JavaScript.
  */
-export const KEYSTORE_SEED_PHRASE_VIEW = "ArkKeystoreSeedPhraseView";
+export const KEYSTORE_SEED_PHRASE_WORD_VIEW = "ArkKeystoreSeedPhraseWordView";
+export const KEYSTORE_SEED_PHRASE_FIELD_VIEW = "ArkKeystoreSeedPhraseFieldView";
+export const KEYSTORE_SEED_PHRASE_SUGGESTION_VIEW = "ArkKeystoreSeedPhraseSuggestionView";
+
+/** How a piece's text is drawn, which the app chooses and the native piece applies: React Native styles no native text. */
+export interface SeedPhraseTextStyle {
+  /** As "#RRGGBB"; the system's own text colour where none is given. */
+  readonly color?: string;
+  /** In points, scaled with the member's text size. */
+  readonly fontSize?: number;
+  readonly fontWeight?: "regular" | "medium" | "semibold" | "bold";
+  readonly textAlign?: "left" | "center" | "right";
+}
+
+/** The piece that draws one word of the seed phrase, while it is shown: the word at `position`, counted from 0. */
+export interface SeedPhraseWordProps extends SeedPhraseTextStyle {
+  readonly position: number;
+}
+
+/** The field a word of a seed phrase is typed into. It holds the word at the position the entry is at. */
+export type SeedPhraseFieldProps = SeedPhraseTextStyle;
+
+/**
+ * The piece that draws one of the list's words that begin with what is typed: the one at `index` among them, from 0,
+ * and nothing where there are fewer. Touched, it is taken as the word.
+ */
+export interface SeedPhraseSuggestionProps extends SeedPhraseTextStyle {
+  readonly index: number;
+}
 
 /**
  * The text of the system's authentication prompt, passed in so that it is a string resource like any other. Android
@@ -59,20 +93,55 @@ export interface NativeKey {
   readonly invalidated: boolean;
 }
 
-/**
- * The native view that draws the held key's 24 words, as the app's reference to it answers. Swift and Kotlin draw
- * them: no call here returns them, and nothing of them crosses to JavaScript.
- */
-export interface KeystoreSeedPhraseView {
-  /** Draws the words, after the member authenticates. It refuses while the screen is recorded or mirrored. */
-  show(prompt: KeystorePrompt): Promise<void>;
-  /** Clears them. The view also clears them itself when the app leaves the foreground or a recording starts. */
-  hide(): Promise<void>;
-}
+/** What entering a seed phrase has come to, when it is held against the key the phone holds. */
+export const SEED_PHRASE_CHECKS = [
+  /** All 24 words are entered, and they are the seed phrase of the key held. */
+  "match",
+  /** All 24 words are entered, and they are not: a word is wrong, or they are another key's. */
+  "no_match",
+  /** Fewer than 24 words are entered. */
+  "incomplete",
+] as const;
+export type SeedPhraseCheck = (typeof SEED_PHRASE_CHECKS)[number];
 
-/** Why the view cleared the words itself, as its `onHide` event says. */
+/** What the word being typed is, as the `onEntryChange` event says: never the letters themselves. */
+export const SEED_PHRASE_TYPING = [
+  /** Nothing is typed. */
+  "empty",
+  /** What is typed begins a word of the list, or is one. */
+  "typing",
+  /** No word of the list begins with what is typed. */
+  "unknown",
+] as const;
+export type SeedPhraseTyping = (typeof SEED_PHRASE_TYPING)[number];
+
+/** Why the seed phrase stopped being shown with nobody asking, as the `onSeedPhraseClosed` event says. */
 export const SEED_PHRASE_HIDDEN = ["background", "capture"] as const;
 export type SeedPhraseHidden = (typeof SEED_PHRASE_HIDDEN)[number];
+
+/**
+ * The events the native module sends. None carries a word or a letter of one.
+ *
+ * - `onSeedPhraseClosed`: the seed phrase stopped being shown with nobody asking, and `reason` says why.
+ * - `onEntryChange`: what is being typed at `position` is now `typing`, and `suggestions` of the list's words begin
+ *   with it.
+ * - `onEntryWord`: a word of the list was taken at `position`, the entry has moved on to `next` by itself, and
+ *   `entered` positions now hold a word.
+ */
+export const KEYSTORE_EVENTS = ["onSeedPhraseClosed", "onEntryChange", "onEntryWord"] as const;
+export type KeystoreEvent = (typeof KEYSTORE_EVENTS)[number];
+
+export interface SeedPhraseChange {
+  readonly position: number;
+  readonly typing: SeedPhraseTyping;
+  readonly suggestions: number;
+}
+
+export interface SeedPhraseWord {
+  readonly position: number;
+  readonly next: number;
+  readonly entered: number;
+}
 
 export interface KeystoreNative {
   /** Whether the C core in this build derives the key and makes the signature a fixed seed must give. */
@@ -87,12 +156,50 @@ export interface KeystoreNative {
   sign(message: Uint8Array, prompt: KeystorePrompt): Promise<Uint8Array>;
   /** Destroys the hardware key and the encrypted seed. With no backup, the key is gone for good. */
   remove(): Promise<void>;
+
   /**
-   * Stores the key a seed's 24 words stand for, as `create` stores a new one. Only a development build has this
-   * call, one made for the Simulator or an emulator: it is how a test loads a key it knows. No build for a phone
-   * takes a member's words from JavaScript.
+   * Opens the held key's seed phrase, after the member authenticates, for the word pieces on the screen to draw:
+   * each draws the word at its position until the seed phrase is closed. It returns no word. It refuses while the
+   * screen is recorded or mirrored.
    */
-  restoreSeedPhrase?(words: string, prompt: KeystorePrompt): Promise<NativeKey>;
+  openSeedPhrase(prompt: KeystorePrompt): Promise<void>;
+  /**
+   * Closes it: every word piece draws nothing. It also closes by itself when the app is left, when a recording
+   * starts, and when no word piece is left on the screen.
+   */
+  closeSeedPhrase(): Promise<void>;
+
+  /**
+   * Moves the entry to a position, from 0: the field then holds the word entered there. The entry moves on by itself
+   * when a word is taken, so that no letter waits on JavaScript; this takes it anywhere else.
+   */
+  moveEntry(position: number): Promise<void>;
+  /** Whether what is entered is the seed phrase of the key held. It asks nothing of the member and opens nothing. */
+  checkEntry(): Promise<string>;
+  /**
+   * The positions, from 0, at which what is entered is not the held key's seed phrase, after the member
+   * authenticates: empty when it is right. A position with nothing entered is among them.
+   */
+  entryMistakes(prompt: KeystorePrompt): Promise<number[]>;
+  /** Stores the key the entered seed phrase stands for, as `create` stores a new one. It refuses while a key is held. */
+  restoreFromEntry(prompt: KeystorePrompt): Promise<NativeKey>;
+  /** Forgets everything entered, and goes back to the first position. */
+  clearEntry(): Promise<void>;
+
+  /** Listens for one of the module's events. */
+  addListener(event: KeystoreEvent, listener: (payload: unknown) => void): { remove(): void };
+
+  /**
+   * Stores the key a seed phrase stands for, as `create` stores a new one. Only a development build has this call,
+   * one made for the Simulator or an emulator: it is how a test loads a key it knows. No build for a phone takes a
+   * seed phrase from JavaScript.
+   */
+  restoreSeedPhrase?(seedPhrase: string, prompt: KeystorePrompt): Promise<NativeKey>;
+  /**
+   * Enters a whole seed phrase at once. Only a development build has this call, which is how a check enters one
+   * where nothing can type.
+   */
+  fillEntry?(seedPhrase: string): Promise<void>;
 }
 
 /**
@@ -113,6 +220,8 @@ export const KEYSTORE_ERRORS = [
   "key_invalidated",
   /** The words were not drawn because the screen is being recorded or mirrored. */
   "screen_captured",
+  /** A key was to be stored from a seed phrase that is not one: words are missing, or their checksum does not hold. */
+  "invalid_seed_phrase",
   /** Anything else: a fault. */
   "failed",
 ] as const;

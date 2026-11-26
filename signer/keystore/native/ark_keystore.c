@@ -66,6 +66,45 @@ static int word_index(const char *word) {
   return -1;
 }
 
+typedef char ark_word_list_size_is_right[ARK_WORD_LIST_SIZE == ARK_BIP39_WORD_COUNT ? 1 : -1];
+
+const char *ark_keystore_word(int index) {
+  if (index < 0 || index >= ARK_BIP39_WORD_COUNT) return NULL;
+  return ARK_BIP39_ENGLISH[index];
+}
+
+int ark_keystore_words_beginning(const char *letters, int *first) {
+  char prefix[ARK_BIP39_WORD_MAX_LENGTH + 1];
+  size_t length = 0;
+  if (first != NULL) *first = -1;
+  for (; letters[length] != '\0'; length++) {
+    char c = letters[length];
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    if (length >= ARK_BIP39_WORD_MAX_LENGTH || c < 'a' || c > 'z') {
+      ark_zeroise(prefix, sizeof prefix);
+      return 0;
+    }
+    prefix[length] = c;
+  }
+  if (length == 0) return 0;
+  // The first word that is not before the letters, by the list's order, and then every word that begins with them.
+  int low = 0;
+  int high = ARK_BIP39_WORD_COUNT;
+  while (low < high) {
+    int middle = (low + high) / 2;
+    if (strncmp(ARK_BIP39_ENGLISH[middle], prefix, length) < 0) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  int count = 0;
+  while (low + count < ARK_BIP39_WORD_COUNT && strncmp(ARK_BIP39_ENGLISH[low + count], prefix, length) == 0) count++;
+  if (count > 0 && first != NULL) *first = low;
+  ark_zeroise(prefix, sizeof prefix);
+  return count;
+}
+
 static int parts_words(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
 int ark_keystore_seed_from_phrase(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown) {

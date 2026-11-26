@@ -14,7 +14,8 @@
 # The check makes a key, signs with it twice, and removes it. Then, since
 # these are development builds, it stores a key from 24 published words, has
 # it sign what the SDK signs with the same key and compares the two byte for
-# byte, and has the native view draw the seed phrase.
+# byte, has the native view draw the seed phrase, and has the entry view hold
+# what is entered against the key, find a wrong word, and restore from it.
 #
 # On the Simulator the key has no authentication on it, since the Simulator
 # refuses every key that has: what is shown there is the seed made, encrypted
@@ -25,8 +26,10 @@
 # for each use and this script types it into the system's prompt, each time
 # the check says it is about to show one. While the words are drawn it reads
 # the screen's accessibility tree and looks for the first and the last of
-# them. The emulator's key store is software, which the build was told to take
-# with the Gradle property the check sets.
+# them: the tree holds only what is on the screen, so the app scrolls to the
+# words when it draws them for the check. The emulator's key store is
+# software, which the build was told to take with the Gradle property the
+# check sets.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -64,7 +67,7 @@ case "$platform" in
       xcrun simctl spawn booted log show --last 5m --info --style compact --predicate "processIdentifier == $pid AND eventMessage CONTAINS \"ark-keystore\"" 2>/dev/null
     }
     await "ark-keystore self-check=1" 60
-    await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1" 90
+    await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1 entry=1" 90
     ;;
   android)
     read_log() {
@@ -93,6 +96,7 @@ case "$platform" in
     # check says the words are drawn, the screen is read for the first and the last of the words it restored from.
     answered=0
     seed_phrase_seen=0
+    screen=
     during_wait() {
       asked=$(read_log | grep -c 'ark-keystore prompt=' || true)
       if [ "$asked" -gt "$answered" ] && adb shell dumpsys window displays 2>/dev/null | grep -E 'mCurrentFocus|mFocusedWindow' | grep -q -i -E 'biometric|credential'; then
@@ -103,7 +107,7 @@ case "$platform" in
       fi
       if [ "$seed_phrase_seen" -eq 0 ] && read_log | grep -F -q 'ark-keystore seed-phrase-shown=1'; then
         screen=$(adb exec-out uiautomator dump /dev/tty 2>/dev/null || true)
-        if printf '%s' "$screen" | grep -F -q 'content-desc="1, legal"' && printf '%s' "$screen" | grep -F -q 'content-desc="24, title"'; then
+        if printf '%s' "$screen" | grep -F -q 'text="legal"' && printf '%s' "$screen" | grep -F -q 'text="title"'; then
           seed_phrase_seen=1
           echo "the words are on the screen"
         fi
@@ -112,12 +116,19 @@ case "$platform" in
     launch
     # Whatever the emulator's key store calls itself: the image decides that, and the PIN is what is shown here.
     await "ark-keystore device-check=ok protection=passcode" 180
-    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 seed-phrase=1'; then
-      echo "the check passed without restoring a key or drawing its words: the build is not a development build" >&2
+    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 seed-phrase=1 entry=1'; then
+      echo "the check passed without restoring a key, drawing its seed phrase, or entering it: the build is not a development build" >&2
       exit 1
     fi
     if [ "$seed_phrase_seen" -ne 1 ]; then
       echo "the check said the words were drawn, and they were not found on the screen" >&2
+      # Which of the two it was: the screen read too late or not at all, or read without the words on it.
+      if [ -z "$screen" ]; then
+        echo "the screen was not read while they were drawn" >&2
+      else
+        echo "what the screen held when it was last read:" >&2
+        printf '%s\n' "$screen" >&2
+      fi
       exit 1
     fi
     ;;

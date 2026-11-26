@@ -127,14 +127,35 @@ enum SeedStore {
     }
   }
 
-  /// Stores the seed 24 words stand for, as a new one is stored. The words are read in C.
+  /// Stores the seed a seed phrase stands for, as a new one is stored. The seed phrase is read in C. A text that
+  /// is not one is refused before anything else is asked or changed, a key already held among them.
   static func restore(seedPhrase: String) throws -> Held {
-    try store { seed, memberKey in
+    _ = try memberKey(ofSeedPhrase: seedPhrase)
+    return try store { seed, memberKey in
       let status = seedPhrase.withCString { ark_keystore_seed_from_phrase($0, seed, nil, nil) }
       guard status == ARK_SEED_PHRASE_OK, ark_keystore_public_key(seed, memberKey) == 1 else {
-        throw KeystoreFailure(.failed, "the text is not a seed's 24 words: status \(status)")
+        throw KeystoreFailure(.invalidSeedPhrase, "the text is not a seed phrase: status \(status)")
       }
     }
+  }
+
+  /// Whether a text is the seed phrase of the key held. It opens nothing and asks nothing of the member: the public
+  /// key the text gives is held against the one kept beside the encrypted seed.
+  static func matches(seedPhrase: String) throws -> Bool {
+    guard let held = try held(), let entered = try? memberKey(ofSeedPhrase: seedPhrase) else { return false }
+    return Data(entered) == held.publicKey
+  }
+
+  /// The public key of the seed a seed phrase stands for, with the seed wiped before this returns.
+  private static func memberKey(ofSeedPhrase seedPhrase: String) throws -> [UInt8] {
+    var seed = [UInt8](repeating: 0, count: Int(ARK_SEED_LENGTH))
+    defer { ark_keystore_wipe(&seed, seed.count) }
+    var memberKey = [UInt8](repeating: 0, count: Int(ARK_PUBLIC_KEY_LENGTH))
+    let status = seedPhrase.withCString { ark_keystore_seed_from_phrase($0, &seed, nil, nil) }
+    guard status == ARK_SEED_PHRASE_OK, ark_keystore_public_key(&seed, &memberKey) == 1 else {
+      throw KeystoreFailure(.invalidSeedPhrase, "the text is not a seed phrase: status \(status)")
+    }
+    return memberKey
   }
 
   /// Stores a seed under a new Enclave key. `fill` writes the seed and its public key into the memory it is given.
@@ -437,6 +458,7 @@ struct KeystoreFailure: Error {
     case lockedOut = "locked_out"
     case keyInvalidated = "key_invalidated"
     case screenCaptured = "screen_captured"
+    case invalidSeedPhrase = "invalid_seed_phrase"
     case failed
   }
 

@@ -31,4 +31,10 @@ internal object Core {
 
   /** Reads UTF-8 text as a seed's words: the core's answer, with the seed and its public key written when it is SEED_PHRASE_OK. */
   external fun seedFromPhraseNative(text: ByteArray, seed: ByteArray, publicKey: ByteArray): Int
+
+  /** How many words of the list begin with the letters, and where the first of them is in the list: two numbers. */
+  external fun wordsBeginningNative(letters: ByteArray): IntArray
+
+  /** The word at a place in the list, or null where the list has none. */
+  external fun wordNative(index: Int): String?
 }

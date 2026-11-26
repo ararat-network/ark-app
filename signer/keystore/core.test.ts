@@ -256,6 +256,33 @@ test("24 words of the list are a seed's exactly when the SDK says their checksum
   }
 });
 
+test("the words that begin with what a member has typed are the list's, whichever letters they are", () => {
+  const header = readFileSync(join(native, "ark_bip39_english.h"), "utf8");
+  const list = [...header.slice(header.indexOf("ARK_BIP39_ENGLISH[")).matchAll(/"([a-z]+)"/g)].map((m) => m[1] ?? "");
+  const beginning = (letters: string): { count: number; first: number; words: string[] } => {
+    const [count, first, ...words] = run("beginning", letters).split(" ");
+    return { count: Number(count), first: Number(first), words };
+  };
+  const expected = (letters: string): string[] => list.filter((word) => word.startsWith(letters.toLowerCase()));
+
+  // Every prefix of a sample of words, the whole of each among them, and prefixes that begin nothing.
+  const prefixes = new Set<string>(["a", "z", "ab", "act", "zoo", "zz", "q", "x", "abandonx", "zzzzzzzz", "aaaaaaaa"]);
+  for (let i = 0; i < list.length; i += 37) for (let n = 1; n <= (list[i]?.length ?? 0); n++) prefixes.add((list[i] ?? "").slice(0, n));
+  for (const letters of prefixes) {
+    const answer = beginning(letters);
+    const want = expected(letters);
+    assert.deepEqual(answer.words, want, letters);
+    assert.equal(answer.count, want.length, letters);
+    assert.equal(answer.first, want.length > 0 ? list.indexOf(want[0] ?? "") : -1, letters);
+  }
+  assert.deepEqual(beginning("ABAN").words, ["abandon"], "letters are taken in either case");
+  assert.equal(beginning("act").words[0], "act", "a word that begins others is the first of them");
+  // Four letters name one word of the list, or a word of three letters and those it begins.
+  for (const word of list) assert.ok(expected(word.slice(0, 4)).length <= 2 || word.length <= 4, word);
+  for (const none of ["", "abandonment", "ab1", "ab c", "caf\u00e9", "-"])
+    assert.deepEqual(beginning(none), { count: 0, first: -1, words: [] }, JSON.stringify(none));
+});
+
 test("a seed that is not 32 bytes is not taken", () => {
   assert.throws(() => execFileSync(cli, ["key", "00".repeat(31)], { stdio: "pipe" }));
   assert.throws(() => execFileSync(cli, ["public", "00".repeat(33)], { stdio: "pipe" }));
