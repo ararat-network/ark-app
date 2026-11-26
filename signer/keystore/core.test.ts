@@ -5,7 +5,7 @@
 // every transaction fixture.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -243,7 +243,8 @@ test("24 words of the list are a seed's exactly when the SDK says their checksum
   const header = readFileSync(join(native, "ark_bip39_english.h"), "utf8");
   const list = [...header.slice(header.indexOf("ARK_BIP39_ENGLISH[")).matchAll(/"([a-z]+)"/g)].map((m) => m[1] ?? "");
   for (let i = 0; i < 600; i++) {
-    const text = Array.from({ length: 24 }, () => list[randomBytes(2).readUInt16BE() % list.length]).join(" ");
+    // Each word drawn evenly from the list: a remainder of random bytes would favour some words on a list of any other length.
+    const text = Array.from({ length: 24 }, () => list[randomInt(list.length)]).join(" ");
     const answer = read(text);
     assert.equal(answer.status === OK, isValidMnemonic(text), text);
     assert.ok(answer.status === OK || answer.status === CHECKSUM);
