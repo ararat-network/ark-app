@@ -22,7 +22,7 @@ extern "C" {
 #define ARK_SIGNATURE_LENGTH 64
 #define ARK_WORD_COUNT 24
 // 24 words of at most 8 letters, 23 spaces, and the terminator. A plain number, so that Swift reads it.
-#define ARK_WORDS_SIZE 216
+#define ARK_SEED_PHRASE_SIZE 216
 
 // Each returns 1 when it has done what it says and 0 when it has not, in
 // which case what it was to write is zeroed.
@@ -42,22 +42,22 @@ int ark_keystore_sign(const uint8_t seed[ARK_SEED_LENGTH], const uint8_t *messag
 // The seed as the 24 words a member writes down: BIP-39's English words, in
 // lower case, with one space between each. They are the seed in another form,
 // and whoever is handed them wipes the buffer once they are drawn.
-int ark_keystore_words(const uint8_t seed[ARK_SEED_LENGTH], char words[ARK_WORDS_SIZE]);
+int ark_keystore_seed_phrase(const uint8_t seed[ARK_SEED_LENGTH], char phrase[ARK_SEED_PHRASE_SIZE]);
 
 // What a text is, read as a seed's words.
-#define ARK_WORDS_OK 0         // 24 words of the list, and their checksum holds
-#define ARK_WORDS_INCOMPLETE 1 // fewer than 24 words, each of them of the list
-#define ARK_WORDS_UNKNOWN 2    // a word that is not of the list
-#define ARK_WORDS_TOO_MANY 3   // more than 24 words
-#define ARK_WORDS_CHECKSUM 4   // 24 words of the list whose checksum does not hold
+#define ARK_SEED_PHRASE_OK 0         // 24 words of the list, and their checksum holds
+#define ARK_SEED_PHRASE_INCOMPLETE 1 // fewer than 24 words, each of them of the list
+#define ARK_SEED_PHRASE_UNKNOWN 2    // a word that is not of the list
+#define ARK_SEED_PHRASE_TOO_MANY 3   // more than 24 words
+#define ARK_SEED_PHRASE_CHECKSUM 4   // 24 words of the list whose checksum does not hold
 
 // Reads a text as a seed's words and says which of the above it is. Letters
 // are taken in either case, and any run of spaces, tabs, and line ends parts
 // two words or surrounds them. The seed is written when the answer is
-// ARK_WORDS_OK and zeroed otherwise. `count` is how many words were read, and
+// ARK_SEED_PHRASE_OK and zeroed otherwise. `count` is how many words were read, and
 // `unknown` the position, from 0, of the first that is not of the list, or -1.
 // Either may be NULL.
-int ark_keystore_seed_from_words(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown);
+int ark_keystore_seed_from_phrase(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown);
 
 // Zeroes what held a seed, in a way a compiler does not remove. Swift and
 // Kotlin call it on the one buffer each of them hands a seed through.

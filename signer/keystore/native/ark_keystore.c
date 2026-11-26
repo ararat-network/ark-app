@@ -21,7 +21,7 @@ static int system_random(uint8_t *bytes, size_t length) { return getentropy(byte
 
 // BIP-39: the seed, then the first byte of its SHA-256 as a checksum, read as
 // 24 groups of 11 bits, each the index of a word.
-void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_SIZE]) {
+int ark_keystore_seed_phrase(const uint8_t seed[ARK_SEED_LENGTH], char mnemonic[ARK_SEED_PHRASE_SIZE]) {
   uint8_t bits[33];
   uint8_t digest[ARK_SHA256_LENGTH];
   size_t at = 0;
@@ -43,15 +43,11 @@ void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_S
   mnemonic[at] = '\0';
   ark_zeroise(bits, sizeof bits);
   ark_zeroise(digest, sizeof digest);
-}
-
-// The size the header gives for a seed's words is the one their longest form takes.
-typedef char ark_words_size_is_right[ARK_WORDS_SIZE == ARK_WORD_COUNT * ARK_BIP39_WORD_MAX_LENGTH + (ARK_WORD_COUNT - 1) + 1 ? 1 : -1];
-
-int ark_keystore_words(const uint8_t seed[ARK_SEED_LENGTH], char words[ARK_WORDS_SIZE]) {
-  ark_mnemonic_from_seed(seed, words);
   return 1;
 }
+
+// The size the header gives for a seed phrase is the one its longest form takes.
+typedef char ark_seed_phrase_size_is_right[ARK_SEED_PHRASE_SIZE == ARK_WORD_COUNT * ARK_BIP39_WORD_MAX_LENGTH + (ARK_WORD_COUNT - 1) + 1 ? 1 : -1];
 
 // The index of a word in the list, which is in alphabetical order, or -1.
 static int word_index(const char *word) {
@@ -72,7 +68,7 @@ static int word_index(const char *word) {
 
 static int parts_words(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
-int ark_keystore_seed_from_words(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown) {
+int ark_keystore_seed_from_phrase(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown) {
   // BIP-39 in reverse: each word is 11 bits, its index; 24 of them are the 256 bits of the seed and 8 of checksum.
   uint8_t bits[33];
   uint8_t digest[ARK_SHA256_LENGTH];
@@ -111,16 +107,16 @@ int ark_keystore_seed_from_words(const char *text, uint8_t seed[ARK_SEED_LENGTH]
   }
 
   if (first_unknown >= 0) {
-    status = ARK_WORDS_UNKNOWN;
+    status = ARK_SEED_PHRASE_UNKNOWN;
   } else if (words < ARK_WORD_COUNT) {
-    status = ARK_WORDS_INCOMPLETE;
+    status = ARK_SEED_PHRASE_INCOMPLETE;
   } else if (words > ARK_WORD_COUNT) {
-    status = ARK_WORDS_TOO_MANY;
+    status = ARK_SEED_PHRASE_TOO_MANY;
   } else {
     ark_sha256(bits, ARK_SEED_LENGTH, digest);
-    status = digest[0] == bits[ARK_SEED_LENGTH] ? ARK_WORDS_OK : ARK_WORDS_CHECKSUM;
+    status = digest[0] == bits[ARK_SEED_LENGTH] ? ARK_SEED_PHRASE_OK : ARK_SEED_PHRASE_CHECKSUM;
   }
-  if (status == ARK_WORDS_OK) {
+  if (status == ARK_SEED_PHRASE_OK) {
     memcpy(seed, bits, ARK_SEED_LENGTH);
   } else {
     memset(seed, 0, ARK_SEED_LENGTH);
@@ -184,7 +180,7 @@ int ark_private_key_from_seed(const uint8_t seed[32], uint8_t private_key[ARK_PR
   static const uint8_t salt[] = {'m', 'n', 'e', 'm', 'o', 'n', 'i', 'c'};
   static const uint8_t master[] = {'B', 'i', 't', 'c', 'o', 'i', 'n', ' ', 's', 'e', 'e', 'd'};
   static const uint32_t path[5] = {44 | HARDENED, 330 | HARDENED, 0 | HARDENED, 0, 0};
-  char mnemonic[ARK_MNEMONIC_SIZE];
+  char mnemonic[ARK_SEED_PHRASE_SIZE];
   uint8_t stretched[ARK_SHA512_LENGTH];
   uint8_t mac[ARK_SHA512_LENGTH];
   uint8_t key[32];
@@ -196,7 +192,7 @@ int ark_private_key_from_seed(const uint8_t seed[32], uint8_t private_key[ARK_PR
     memset(private_key, 0, ARK_PRIVATE_KEY_LENGTH);
     return 0;
   }
-  ark_mnemonic_from_seed(seed, mnemonic);
+  ark_keystore_seed_phrase(seed, mnemonic);
   ark_pbkdf2_hmac_sha512((const uint8_t *)mnemonic, strlen(mnemonic), salt, sizeof salt, 2048, stretched);
   ark_hmac_sha512(master, sizeof master, stretched, sizeof stretched, mac);
   memcpy(key, mac, 32);

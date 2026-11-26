@@ -16,7 +16,7 @@ is rewritten as what is once it is built.
 
 The scaffold is the app with nothing in it yet. It has one screen, which asks the signer's
 [keystore](../signer/README.md#protection-at-rest) to check its core, shows the key the phone holds, and has a button
-for each thing the keystore does: make a key, sign a test message, remove the key, and show its 24 words, which the
+for each thing the keystore does: make a key, sign a test message, remove the key, and show its seed phrase, which the
 keystore's own native view draws and the app's JavaScript never has. It exists to show that the pieces
 every later step needs are in place: the native projects generated from [app.json](app.json), the signer taken by
 path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both platforms and runs
@@ -158,7 +158,7 @@ projects, what is built is fixed by the pinned Expo SDK and the app's config, wh
 
 ### What it never holds
 
-- A plaintext seed, key, or mnemonic at rest. The mnemonic is drawn by the keystore's native view and is never in
+- A plaintext seed, key, or seed phrase at rest. The seed phrase is drawn by the keystore's native view and is never in
   the app's JavaScript, on the screen or off it.
 - The phone number after its verification, or anything else that names a person. What the service keeps is its own
   design, and nothing in it names a person either

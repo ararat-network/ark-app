@@ -11,7 +11,7 @@ import UIKit
 // the screen starts being recorded or mirrored, and when the view leaves its
 // window. iOS gives an app no way to refuse a screenshot, so one taken while
 // the words are shown holds them.
-final class ArkKeystoreWordsView: ExpoView {
+final class ArkKeystoreSeedPhraseView: ExpoView {
   /// Sent when the view clears the words itself, with why: `background` or `capture`.
   let onHide = EventDispatcher()
 
@@ -43,7 +43,7 @@ final class ArkKeystoreWordsView: ExpoView {
       return
     }
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      let opened = Result { try SeedStore.words(reason: reason, cancel: cancel) }
+      let opened = Result { try SeedStore.seedPhrase(reason: reason, cancel: cancel) }
       DispatchQueue.main.async {
         switch opened {
         case .failure(let failure as KeystoreFailure):

@@ -1,7 +1,7 @@
 // The strings for what the keystore says: its check, the key it holds, the
 // prompt it shows, and why a call was refused. Apart from the screen so that
 // they are tested with no device.
-import type { DeviceKey, KeystoreCheck, KeystoreErrorKind, KeystorePrompt, KeystorePromptPurpose, WordsHidden } from "@ararat-network/signer/keystore";
+import type { DeviceKey, KeystoreCheck, KeystoreErrorKind, KeystorePrompt, KeystorePromptPurpose, SeedPhraseHidden } from "@ararat-network/signer/keystore";
 import { type StringKey, strings } from "./strings";
 
 const STATUS: Record<KeystoreCheck, StringKey> = {
@@ -31,8 +31,8 @@ export function keystorePrompt(purpose: KeystorePromptPurpose): KeystorePrompt {
 }
 
 /** The string for why the native view cleared the words itself. */
-export function wordsHiddenString(reason: WordsHidden): StringKey {
-  return `scaffold.result.words_hidden.${reason}`;
+export function seedPhraseHiddenString(reason: SeedPhraseHidden): StringKey {
+  return `scaffold.result.seed_phrase_hidden.${reason}`;
 }
 
 /** The string for what stopped a keystore call: by its kind where it has one of the keystore's, and the general one otherwise. */

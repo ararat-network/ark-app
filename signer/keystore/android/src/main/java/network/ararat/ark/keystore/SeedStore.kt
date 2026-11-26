@@ -106,12 +106,12 @@ internal class SeedStore private constructor(private val context: Context) {
   }
 
   /** Stores the seed 24 words stand for, as a new one is stored. The words are read in C. */
-  fun restore(activity: FragmentActivity, words: String, prompt: PromptText, done: (Result<Held>) -> Unit) {
+  fun restore(activity: FragmentActivity, seedPhrase: String, prompt: PromptText, done: (Result<Held>) -> Unit) {
     val read = { seed: ByteArray, publicKey: ByteArray ->
-      val text = words.toByteArray(Charsets.UTF_8)
+      val text = seedPhrase.toByteArray(Charsets.UTF_8)
       try {
-        val status = Core.seedFromWordsNative(text, seed, publicKey)
-        if (status != Core.WORDS_OK) throw KeystoreFailure("failed", "the text is not a seed's 24 words: status $status")
+        val status = Core.seedFromPhraseNative(text, seed, publicKey)
+        if (status != Core.SEED_PHRASE_OK) throw KeystoreFailure("failed", "the text is not a seed's 24 words: status $status")
       } finally {
         text.fill(0)
       }
@@ -177,10 +177,10 @@ internal class SeedStore private constructor(private val context: Context) {
    * else: no call that JavaScript can make returns them. They are written in C into an array that is zeroed here;
    * the strings a text view needs are the one copy this side keeps, until the view clears them.
    */
-  fun words(activity: FragmentActivity, prompt: PromptText, done: (Result<List<String>>) -> Unit) = withSeed(activity, prompt, done) { seed ->
-    val text = ByteArray(Core.WORDS_SIZE)
+  fun seedPhrase(activity: FragmentActivity, prompt: PromptText, done: (Result<List<String>>) -> Unit) = withSeed(activity, prompt, done) { seed ->
+    val text = ByteArray(Core.SEED_PHRASE_SIZE)
     try {
-      if (!Core.wordsNative(seed, text)) throw KeystoreFailure("failed", "the core gave no words")
+      if (!Core.seedPhraseNative(seed, text)) throw KeystoreFailure("failed", "the core gave no words")
       val end = text.indexOf(0).let { if (it < 0) text.size else it }
       val words = String(text, 0, end, Charsets.US_ASCII).split(' ')
       if (words.size != Core.WORD_COUNT) throw KeystoreFailure("failed", "the core gave ${words.size} words")

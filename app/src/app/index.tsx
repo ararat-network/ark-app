@@ -15,39 +15,39 @@ import {
   type DeviceKey,
   deviceKeystore,
   KEYSTORE_MODULE,
-  KEYSTORE_WORDS_VIEW,
+  KEYSTORE_SEED_PHRASE_VIEW,
   type KeystoreNative,
-  type KeystoreWordsView,
-  type WordsHidden,
+  type KeystoreSeedPhraseView,
+  type SeedPhraseHidden,
 } from "@ararat-network/signer/keystore";
 import { checkOnDevice, signsAndVerifies } from "@ararat-network/signer/keystore/device-check";
 import { requireNativeView, requireOptionalNativeModule } from "expo";
 import { type ComponentType, type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type ViewProps } from "react-native";
-import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, wordsHiddenString } from "../keystore-status";
+import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, seedPhraseHiddenString } from "../keystore-status";
 import { type StringKey, strings } from "../strings";
 
 const DEVICE_CHECK = process.env.EXPO_PUBLIC_ARK_DEVICE_CHECK === "1";
 /** How long the device check leaves the words drawn, for whoever is reading the screen. */
-const WORDS_SHOWN_FOR_CHECK_MS = 6000;
+const SEED_PHRASE_SHOWN_FOR_CHECK_MS = 6000;
 
-interface WordsViewProps extends ViewProps {
-  ref?: Ref<KeystoreWordsView>;
+interface SeedPhraseViewProps extends ViewProps {
+  ref?: Ref<KeystoreSeedPhraseView>;
   /** As "#RRGGBB"; the system's own text colours where none is given. */
   wordColor?: string;
   numberColor?: string;
-  onHide?(event: { nativeEvent: { reason: WordsHidden } }): void;
+  onHide?(event: { nativeEvent: { reason: SeedPhraseHidden } }): void;
 }
 
 export default function Scaffold() {
   const native = useMemo(() => requireOptionalNativeModule<KeystoreNative>(KEYSTORE_MODULE), []);
   const keystore = useMemo(() => (native ? deviceKeystore(native, { prompt: keystorePrompt }) : null), [native]);
   // The native view exists only where the native module does.
-  const WordsView = useMemo<ComponentType<WordsViewProps> | null>(
-    () => (native ? requireNativeView<WordsViewProps>(KEYSTORE_MODULE, KEYSTORE_WORDS_VIEW) : null),
+  const SeedPhraseView = useMemo<ComponentType<SeedPhraseViewProps> | null>(
+    () => (native ? requireNativeView<SeedPhraseViewProps>(KEYSTORE_MODULE, KEYSTORE_SEED_PHRASE_VIEW) : null),
     [native],
   );
-  const words = useRef<KeystoreWordsView>(null);
+  const words = useRef<KeystoreSeedPhraseView>(null);
   // Once, when the screen first renders: the check is synchronous and has nothing to wait for.
   const [status] = useState(() => keystoreStatus(checkKeystore(native)));
   const [key, setKey] = useState<DeviceKey | null>(null);
@@ -78,8 +78,8 @@ export default function Scaffold() {
           prompt: keystorePrompt,
           // To the device's log, where the check scripts read the check's lines.
           log: (line) => console.log(line),
-          wordsView: () => words.current,
-          whileWordsShown: () => new Promise((resolve) => setTimeout(resolve, WORDS_SHOWN_FOR_CHECK_MS)),
+          seedPhraseView: () => words.current,
+          whileSeedPhraseShown: () => new Promise((resolve) => setTimeout(resolve, SEED_PHRASE_SHOWN_FOR_CHECK_MS)),
         });
         return passed ? "scaffold.result.check_passed" : "scaffold.result.check_failed";
       });
@@ -105,16 +105,16 @@ export default function Scaffold() {
       await keystore?.remove();
       return "scaffold.result.removed";
     });
-  const showWords = () =>
+  const showSeedPhrase = () =>
     run(async () => {
       if (!keystore || !words.current) return "scaffold.result.no_key";
-      await keystore.showWords(words.current);
-      return "scaffold.result.words_shown";
+      await keystore.showSeedPhrase(words.current);
+      return "scaffold.result.seed_phrase_shown";
     });
-  const hideWords = () =>
+  const hideSeedPhrase = () =>
     run(async () => {
       await words.current?.hide();
-      return "scaffold.result.words_hidden";
+      return "scaffold.result.seed_phrase_hidden";
     });
 
   return (
@@ -145,8 +145,8 @@ export default function Scaffold() {
             ["scaffold.action.create", create],
             ["scaffold.action.sign", sign],
             ["scaffold.action.remove", remove],
-            ["scaffold.action.show_words", showWords],
-            ["scaffold.action.hide_words", hideWords],
+            ["scaffold.action.show_seed_phrase", showSeedPhrase],
+            ["scaffold.action.hide_seed_phrase", hideSeedPhrase],
           ] as const
         ).map(([label, action]) => (
           <Pressable
@@ -160,14 +160,14 @@ export default function Scaffold() {
           </Pressable>
         ))}
       </View>
-      <Text style={styles.label}>{strings["scaffold.words"]}</Text>
-      {WordsView ? (
-        <WordsView
+      <Text style={styles.label}>{strings["scaffold.seed_phrase"]}</Text>
+      {SeedPhraseView ? (
+        <SeedPhraseView
           ref={words}
           style={styles.words}
           wordColor="#111111"
           numberColor="#555555"
-          onHide={(event) => setResult(wordsHiddenString(event.nativeEvent.reason))}
+          onHide={(event) => setResult(seedPhraseHiddenString(event.nativeEvent.reason))}
         />
       ) : null}
     </ScrollView>

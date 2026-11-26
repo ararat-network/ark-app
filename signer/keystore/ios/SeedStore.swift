@@ -128,10 +128,10 @@ enum SeedStore {
   }
 
   /// Stores the seed 24 words stand for, as a new one is stored. The words are read in C.
-  static func restore(words: String) throws -> Held {
+  static func restore(seedPhrase: String) throws -> Held {
     try store { seed, memberKey in
-      let status = words.withCString { ark_keystore_seed_from_words($0, seed, nil, nil) }
-      guard status == ARK_WORDS_OK, ark_keystore_public_key(seed, memberKey) == 1 else {
+      let status = seedPhrase.withCString { ark_keystore_seed_from_phrase($0, seed, nil, nil) }
+      guard status == ARK_SEED_PHRASE_OK, ark_keystore_public_key(seed, memberKey) == 1 else {
         throw KeystoreFailure(.failed, "the text is not a seed's 24 words: status \(status)")
       }
     }
@@ -213,11 +213,11 @@ enum SeedStore {
   /// The held key's 24 words, after the member authenticates, for the native view that draws them and for nothing
   /// else: no call that JavaScript can make returns them. They are written in C into a buffer that is wiped here;
   /// the strings a label needs are the one copy this side keeps, until the view clears them.
-  static func words(reason: String, cancel: String) throws -> [String] {
+  static func seedPhrase(reason: String, cancel: String) throws -> [String] {
     try withSeed(reason: reason, cancel: cancel) { seed in
-      var text = [CChar](repeating: 0, count: Int(ARK_WORDS_SIZE))
+      var text = [CChar](repeating: 0, count: Int(ARK_SEED_PHRASE_SIZE))
       defer { ark_keystore_wipe(&text, text.count) }
-      guard ark_keystore_words(seed, &text) == 1 else { throw KeystoreFailure(.failed, "the core gave no words") }
+      guard ark_keystore_seed_phrase(seed, &text) == 1 else { throw KeystoreFailure(.failed, "the core gave no words") }
       let words = String(cString: text).split(separator: " ").map(String.init)
       guard words.count == Int(ARK_WORD_COUNT) else { throw KeystoreFailure(.failed, "the core gave \(words.count) words") }
       return words

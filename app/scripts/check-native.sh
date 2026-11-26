@@ -14,7 +14,7 @@
 # The check makes a key, signs with it twice, and removes it. Then, since
 # these are development builds, it stores a key from 24 published words, has
 # it sign what the SDK signs with the same key and compares the two byte for
-# byte, and has the native view draw the words.
+# byte, and has the native view draw the seed phrase.
 #
 # On the Simulator the key has no authentication on it, since the Simulator
 # refuses every key that has: what is shown there is the seed made, encrypted
@@ -64,7 +64,7 @@ case "$platform" in
       xcrun simctl spawn booted log show --last 5m --info --style compact --predicate "processIdentifier == $pid AND eventMessage CONTAINS \"ark-keystore\"" 2>/dev/null
     }
     await "ark-keystore self-check=1" 60
-    await "ark-keystore device-check=ok protection=none hardware=software restored=1 words=1" 90
+    await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1" 90
     ;;
   android)
     read_log() {
@@ -92,7 +92,7 @@ case "$platform" in
     # Each prompt the check announces is answered once, when the system's prompt is the window in front. And once the
     # check says the words are drawn, the screen is read for the first and the last of the words it restored from.
     answered=0
-    words_seen=0
+    seed_phrase_seen=0
     during_wait() {
       asked=$(read_log | grep -c 'ark-keystore prompt=' || true)
       if [ "$asked" -gt "$answered" ] && adb shell dumpsys window displays 2>/dev/null | grep -E 'mCurrentFocus|mFocusedWindow' | grep -q -i -E 'biometric|credential'; then
@@ -101,10 +101,10 @@ case "$platform" in
         adb shell input keyevent KEYCODE_ENTER
         answered=$((answered + 1))
       fi
-      if [ "$words_seen" -eq 0 ] && read_log | grep -F -q 'ark-keystore words-shown=1'; then
+      if [ "$seed_phrase_seen" -eq 0 ] && read_log | grep -F -q 'ark-keystore seed-phrase-shown=1'; then
         screen=$(adb exec-out uiautomator dump /dev/tty 2>/dev/null || true)
         if printf '%s' "$screen" | grep -F -q 'content-desc="1, legal"' && printf '%s' "$screen" | grep -F -q 'content-desc="24, title"'; then
-          words_seen=1
+          seed_phrase_seen=1
           echo "the words are on the screen"
         fi
       fi
@@ -112,11 +112,11 @@ case "$platform" in
     launch
     # Whatever the emulator's key store calls itself: the image decides that, and the PIN is what is shown here.
     await "ark-keystore device-check=ok protection=passcode" 180
-    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 words=1'; then
+    if ! read_log | grep -F 'ark-keystore device-check=ok protection=passcode' | grep -F -q 'restored=1 seed-phrase=1'; then
       echo "the check passed without restoring a key or drawing its words: the build is not a development build" >&2
       exit 1
     fi
-    if [ "$words_seen" -ne 1 ]; then
+    if [ "$seed_phrase_seen" -ne 1 ]; then
       echo "the check said the words were drawn, and they were not found on the screen" >&2
       exit 1
     fi

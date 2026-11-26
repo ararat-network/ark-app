@@ -26,7 +26,7 @@ import expo.modules.kotlin.views.ExpoView
 // being shown, and when the view leaves its window. While they are drawn the
 // window is marked secure, so that the system leaves them out of screenshots,
 // recordings, and the picture of the app among recent apps.
-class ArkKeystoreWordsView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
+class ArkKeystoreSeedPhraseView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
   /** Sent when the view clears the words itself, with why: `background`. */
   val onHide by EventDispatcher()
 
@@ -48,7 +48,7 @@ class ArkKeystoreWordsView(context: Context, appContext: AppContext) : ExpoView(
   internal fun show(prompt: PromptText, promise: Promise) {
     val activity = appContext.currentActivity as? FragmentActivity
       ?: return promise.reject(coded(KeystoreFailure("failed", "the app has no screen to show the prompt over")))
-    SeedStore.of(context).words(activity, prompt) { opened ->
+    SeedStore.of(context).seedPhrase(activity, prompt) { opened ->
       post {
         opened.fold(
           { list ->

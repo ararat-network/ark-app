@@ -36,7 +36,7 @@ export type KeystoreUnavailable = (typeof KEYSTORE_UNAVAILABLE)[number];
 /**
  * The name of the native view that draws the key's 24 words: what the app asks Expo for, beside the module's name.
  */
-export const KEYSTORE_WORDS_VIEW = "ArkKeystoreWordsView";
+export const KEYSTORE_SEED_PHRASE_VIEW = "ArkKeystoreSeedPhraseView";
 
 /**
  * The text of the system's authentication prompt, passed in so that it is a string resource like any other. Android
@@ -63,7 +63,7 @@ export interface NativeKey {
  * The native view that draws the held key's 24 words, as the app's reference to it answers. Swift and Kotlin draw
  * them: no call here returns them, and nothing of them crosses to JavaScript.
  */
-export interface KeystoreWordsView {
+export interface KeystoreSeedPhraseView {
   /** Draws the words, after the member authenticates. It refuses while the screen is recorded or mirrored. */
   show(prompt: KeystorePrompt): Promise<void>;
   /** Clears them. The view also clears them itself when the app leaves the foreground or a recording starts. */
@@ -71,8 +71,8 @@ export interface KeystoreWordsView {
 }
 
 /** Why the view cleared the words itself, as its `onHide` event says. */
-export const WORDS_HIDDEN = ["background", "capture"] as const;
-export type WordsHidden = (typeof WORDS_HIDDEN)[number];
+export const SEED_PHRASE_HIDDEN = ["background", "capture"] as const;
+export type SeedPhraseHidden = (typeof SEED_PHRASE_HIDDEN)[number];
 
 export interface KeystoreNative {
   /** Whether the C core in this build derives the key and makes the signature a fixed seed must give. */
@@ -92,7 +92,7 @@ export interface KeystoreNative {
    * call, one made for the Simulator or an emulator: it is how a test loads a key it knows. No build for a phone
    * takes a member's words from JavaScript.
    */
-  restoreWords?(words: string, prompt: KeystorePrompt): Promise<NativeKey>;
+  restoreSeedPhrase?(words: string, prompt: KeystorePrompt): Promise<NativeKey>;
 }
 
 /**

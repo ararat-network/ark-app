@@ -12,7 +12,7 @@ import expo.modules.kotlin.records.Record
 
 // The keystore's Android side, as JavaScript calls it. The seed's storage and
 // its uses are in SeedStore.kt, and the view that draws its 24 words in
-// ArkKeystoreWordsView.kt; this file turns their answers into what crosses to
+// ArkKeystoreSeedPhraseView.kt; this file turns their answers into what crosses to
 // JavaScript. No call here returns a seed, a key, or the words, and in a
 // build for a phone none takes them.
 class ArkKeystoreModule : Module() {
@@ -58,24 +58,24 @@ class ArkKeystoreModule : Module() {
     // Stores the key a seed's 24 words stand for. Only a development build has this call, which is how a test
     // loads a key it knows: no build for a phone takes words from JavaScript.
     if (BuildConfig.DEVELOPMENT_KEYS) {
-      AsyncFunction("restoreWords") { words: String, prompt: KeystorePrompt, promise: Promise ->
-        store.restore(activity(), words, prompt.text()) { made -> made.fold({ promise.resolve(describe(it)) }, { promise.reject(coded(it)) }) }
+      AsyncFunction("restoreSeedPhrase") { seedPhrase: String, prompt: KeystorePrompt, promise: Promise ->
+        store.restore(activity(), seedPhrase, prompt.text()) { made -> made.fold({ promise.resolve(describe(it)) }, { promise.reject(coded(it)) }) }
       }
     }
 
     // The view that draws the key's 24 words. They are drawn by it and returned by no call.
-    View(ArkKeystoreWordsView::class) {
+    View(ArkKeystoreSeedPhraseView::class) {
       Events("onHide")
 
-      Prop("wordColor") { view: ArkKeystoreWordsView, color: String? -> view.setWordColor(color) }
+      Prop("wordColor") { view: ArkKeystoreSeedPhraseView, color: String? -> view.setWordColor(color) }
 
-      Prop("numberColor") { view: ArkKeystoreWordsView, color: String? -> view.setNumberColor(color) }
+      Prop("numberColor") { view: ArkKeystoreSeedPhraseView, color: String? -> view.setNumberColor(color) }
 
-      AsyncFunction("show") { view: ArkKeystoreWordsView, prompt: KeystorePrompt, promise: Promise ->
+      AsyncFunction("show") { view: ArkKeystoreSeedPhraseView, prompt: KeystorePrompt, promise: Promise ->
         view.post { view.show(prompt.text(), promise) }
       }
 
-      AsyncFunction("hide") { view: ArkKeystoreWordsView ->
+      AsyncFunction("hide") { view: ArkKeystoreSeedPhraseView ->
         view.post { view.hide() }
       }
     }

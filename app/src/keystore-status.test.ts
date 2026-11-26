@@ -7,9 +7,9 @@ import {
   KEYSTORE_ERRORS,
   KEYSTORE_PROMPT_PURPOSES,
   KeystoreError,
-  WORDS_HIDDEN,
+  SEED_PHRASE_HIDDEN,
 } from "@ararat-network/signer/keystore";
-import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, wordsHiddenString } from "./keystore-status";
+import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, seedPhraseHiddenString } from "./keystore-status";
 import { type StringKey, strings } from "./strings";
 
 const has = (key: string): key is StringKey => key in strings && strings[key as StringKey].length > 0;
@@ -60,12 +60,12 @@ test("every prompt has a title, a reason, and a cancel button, and one made to s
     const prompt = keystorePrompt(purpose);
     for (const text of [prompt.title, prompt.reason, prompt.cancel]) assert.ok(text.length > 0, purpose);
   }
-  const reasons = new Set(["create", "sign", "words"].map((purpose) => keystorePrompt(purpose as "create" | "sign" | "words").reason));
+  const reasons = new Set(["create", "sign", "seed_phrase"].map((purpose) => keystorePrompt(purpose as "create" | "sign" | "seed_phrase").reason));
   assert.equal(reasons.size, 3);
 });
 
 test("every reason the words are hidden for has a string of its own", () => {
-  const keys = WORDS_HIDDEN.map(wordsHiddenString);
-  assert.equal(new Set(keys).size, WORDS_HIDDEN.length);
+  const keys = SEED_PHRASE_HIDDEN.map(seedPhraseHiddenString);
+  assert.equal(new Set(keys).size, SEED_PHRASE_HIDDEN.length);
   for (const key of keys) assert.ok(has(key), key);
 });

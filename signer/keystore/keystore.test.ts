@@ -201,22 +201,22 @@ test("a native rejection is read by its code, and anything else is a fault", () 
 test("the words are drawn by the native view after a prompt, and what stops it is a kind", async () => {
   const native = fakeNative({ privateKey: randomPrivateKey() });
   const keystore = deviceKeystore(native, { prompt });
-  await keystore.showWords(native.wordsView);
-  assert.equal(native.wordsView.shown, true);
-  assert.deepEqual(native.prompts, [prompt("words")]);
+  await keystore.showSeedPhrase(native.seedPhraseView);
+  assert.equal(native.seedPhraseView.shown, true);
+  assert.deepEqual(native.prompts, [prompt("seed_phrase")]);
 
-  await native.wordsView.hide();
-  native.wordsView.captured = true;
-  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "screen_captured");
-  native.wordsView.captured = false;
+  await native.seedPhraseView.hide();
+  native.seedPhraseView.captured = true;
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "screen_captured");
+  native.seedPhraseView.captured = false;
   native.failNext = nativeError("authentication_failed");
-  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "authentication_failed");
-  assert.equal(native.wordsView.shown, false);
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "authentication_failed");
+  assert.equal(native.seedPhraseView.shown, false);
 
   native.invalidate();
-  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "key_invalidated");
+  assert.equal((await keystoreError(() => keystore.showSeedPhrase(native.seedPhraseView))).kind, "key_invalidated");
   const empty = fakeNative();
-  assert.equal((await keystoreError(() => deviceKeystore(empty, { prompt }).showWords(empty.wordsView))).kind, "no_key");
+  assert.equal((await keystoreError(() => deviceKeystore(empty, { prompt }).showSeedPhrase(empty.seedPhraseView))).kind, "no_key");
 });
 
 test("a key is restored from its words in a development build alone", async () => {

@@ -5,14 +5,14 @@
 //   cli sha256|sha512 <hex>
 //   cli hmac <key hex> <data hex>
 //   cli pbkdf2 <password hex> <salt hex> <iterations>
-//   cli mnemonic <seed hex>
+//   cli seed-phrase <seed hex>
 //   cli key <seed hex>               the private key the seed derives
 //   cli public <seed hex>
 //   cli sign <seed hex> <message hex>
 //   cli sign-with-key <key hex> <message hex>
 //   cli self-check
 //   cli generate                     a new seed and its public key
-//   cli words <text>                 the text read as a seed's words: status, count, unknown, seed
+//   cli read-seed-phrase <text>      the text read as a seed phrase: status, count, unknown, seed
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,10 +67,10 @@ int main(int argc, char **argv) {
     return print_hex(out, ARK_PUBLIC_KEY_LENGTH);
   }
   if (argc < 3) return 2;
-  if (strcmp(command, "words") == 0) {
+  if (strcmp(command, "read-seed-phrase") == 0) {
     uint8_t seed[ARK_SEED_LENGTH];
     int count, unknown;
-    int status = ark_keystore_seed_from_words(argv[2], seed, &count, &unknown);
+    int status = ark_keystore_seed_from_phrase(argv[2], seed, &count, &unknown);
     printf("%d %d %d ", status, count, unknown);
     return print_hex(seed, sizeof seed);
   }
@@ -83,10 +83,10 @@ int main(int argc, char **argv) {
     ark_sha512(a, a_length, out);
     return print_hex(out, 64);
   }
-  if (strcmp(command, "mnemonic") == 0) {
-    char mnemonic[ARK_MNEMONIC_SIZE];
-    ark_mnemonic_from_seed(exactly(argv[2], 32), mnemonic);
-    printf("%s\n", mnemonic);
+  if (strcmp(command, "seed-phrase") == 0) {
+    char phrase[ARK_SEED_PHRASE_SIZE];
+    if (!ark_keystore_seed_phrase(exactly(argv[2], 32), phrase)) return 1;
+    printf("%s\n", phrase);
     return 0;
   }
   if (strcmp(command, "key") == 0) {

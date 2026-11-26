@@ -17,8 +17,8 @@ import {
   KeystoreError,
   type KeystoreNative,
   type KeystorePrompt,
+  type KeystoreSeedPhraseView,
   type KeystoreUnavailable,
-  type KeystoreWordsView,
   keystoreErrorOf,
   type NativeKey,
 } from "./native.ts";
@@ -41,7 +41,7 @@ export type KeystoreAvailability =
   | { readonly available: false; readonly reason: KeystoreUnavailable };
 
 /** What a prompt is shown for: to make a key, to sign, to draw the key's words, or to store a key from its words. */
-export const KEYSTORE_PROMPT_PURPOSES = ["create", "sign", "words", "restore"] as const;
+export const KEYSTORE_PROMPT_PURPOSES = ["create", "sign", "seed_phrase", "restore"] as const;
 export type KeystorePromptPurpose = (typeof KEYSTORE_PROMPT_PURPOSES)[number];
 
 export interface DeviceKeystoreOptions {
@@ -66,7 +66,7 @@ export interface DeviceKeystore {
    * never reach JavaScript. It rejects with a KeystoreError: `screen_captured` while the screen is recorded or
    * mirrored, and the kinds a signature is refused with.
    */
-  showWords(view: KeystoreWordsView): Promise<void>;
+  showSeedPhrase(view: KeystoreSeedPhraseView): Promise<void>;
   /**
    * Stores the key a seed's 24 words stand for, in a development build alone: how a test loads a key it knows.
    * It rejects as `failed` in any other build, which has no call that takes words from JavaScript.
@@ -190,19 +190,19 @@ export function deviceKeystore(native: KeystoreNative, options: DeviceKeystoreOp
         throw keystoreErrorOf(thrown);
       }
     },
-    async showWords(view: KeystoreWordsView): Promise<void> {
+    async showSeedPhrase(view: KeystoreSeedPhraseView): Promise<void> {
       try {
-        await view.show(options.prompt("words"));
+        await view.show(options.prompt("seed_phrase"));
       } catch (thrown) {
         throw keystoreErrorOf(thrown);
       }
     },
     async restoreDevelopmentKey(words: string): Promise<DeviceKey> {
-      if (typeof native.restoreWords !== "function")
+      if (typeof native.restoreSeedPhrase !== "function")
         throw new KeystoreError("failed", "this build takes no words from JavaScript: only a development build does");
       let restored: NativeKey;
       try {
-        restored = await native.restoreWords(words, options.prompt("restore"));
+        restored = await native.restoreSeedPhrase(words, options.prompt("restore"));
       } catch (thrown) {
         throw keystoreErrorOf(thrown);
       }

@@ -87,10 +87,11 @@ It is built in six pull requests, of which the first four are done:
 3. Protection at rest ([README](../README.md#protection-at-rest)): the seed made in native code and encrypted under
    the hardware key, authentication for each signature, the two kinds of key, the refusals, and the key adapter the
    pipeline signs through, checked on the simulator and the emulator in CI.
-4. Backup B, the 24 words, shown ([README](../README.md#the-24-words)): the words read back into a seed in the C,
+4. Backup B, the seed phrase, shown ([README](../README.md#the-seed-phrase)): its 24 words read back into a seed in
+   the C,
    a native view that draws them, so that they never reach JavaScript, and a key stored from its words, which only a
    development build takes from JavaScript and which is how the device check holds a phone to a key it knows.
-5. Backup B, the 24 words, entered: a native view the member types the words into, which restores from them and
+5. Backup B, the seed phrase, entered: a native view the member types its words into, which restores from them and
    checks them against the key held, with nothing of them in JavaScript.
 6. Backup A.
 
@@ -101,12 +102,13 @@ When the app offers B is still the app's to decide, and is not decided by this.
 
 What is left, in 5 and 6:
 
-- **A native view for entering the words.** A text field of the platform's own, with its suggestions and learning
+- **A native view for entering the seed phrase.** A text field of the platform's own, with its suggestions and learning
   off, which says how many words it holds and whether they are a seed's and never what they are. It restores a key
   from them, as a new key is stored, and says whether they are the words of the key held, which is the check that a
   member wrote them down. The core already reads a text as words and says which word is not of the list.
-- **Backup option A** in the same module: the seed encrypted under a key derived by Argon2id from a recovery secret
-  the member chooses, kept in the platform account's keychain, and restored through the same storing of a seed.
+- **Backup option A** in the same module: the seed encrypted under a key derived by Argon2id from a backup secret
+  the member chooses, kept in the platform account's keychain, and restored through the same storing of a seed. A
+  phone that still holds its key sets a new backup secret with no need of the old one.
 
 What is left that no pull request closes:
 
