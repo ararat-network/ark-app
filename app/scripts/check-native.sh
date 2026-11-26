@@ -25,8 +25,10 @@
 # for each use and this script types it into the system's prompt, each time
 # the check says it is about to show one. While the words are drawn it reads
 # the screen's accessibility tree and looks for the first and the last of
-# them. The emulator's key store is software, which the build was told to take
-# with the Gradle property the check sets.
+# them: the tree holds only what is on the screen, so the app scrolls to the
+# words when it draws them for the check. The emulator's key store is
+# software, which the build was told to take with the Gradle property the
+# check sets.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -93,6 +95,7 @@ case "$platform" in
     # check says the words are drawn, the screen is read for the first and the last of the words it restored from.
     answered=0
     seed_phrase_seen=0
+    screen=
     during_wait() {
       asked=$(read_log | grep -c 'ark-keystore prompt=' || true)
       if [ "$asked" -gt "$answered" ] && adb shell dumpsys window displays 2>/dev/null | grep -E 'mCurrentFocus|mFocusedWindow' | grep -q -i -E 'biometric|credential'; then
@@ -118,6 +121,13 @@ case "$platform" in
     fi
     if [ "$seed_phrase_seen" -ne 1 ]; then
       echo "the check said the words were drawn, and they were not found on the screen" >&2
+      # Which of the two it was: the screen read too late or not at all, or read without the words on it.
+      if [ -z "$screen" ]; then
+        echo "the screen was not read while they were drawn" >&2
+      else
+        echo "what the screen held when it was last read:" >&2
+        printf '%s\n' "$screen" >&2
+      fi
       exit 1
     fi
     ;;
