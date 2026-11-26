@@ -58,7 +58,7 @@ internal class PromptText(val title: String, val reason: String, val cancel: Str
 /** Why a keystore call did not do what it was asked, by the kind JavaScript reads from its code. */
 internal class KeystoreFailure(val kind: String, message: String, cause: Throwable? = null) : Exception(message, cause)
 
-internal class SeedStore(private val context: Context) {
+internal class SeedStore private constructor(private val context: Context) {
   private val keyStore: KeyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
   private val file = AtomicFile(File(File(context.noBackupFilesDir, "ark-keystore"), "seed"))
 
@@ -77,7 +77,7 @@ internal class SeedStore(private val context: Context) {
   private fun protectionNow(): Protection {
     val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
     if (!keyguard.isDeviceSecure) throw KeystoreFailure("no_passcode", "the phone has no screen lock")
-    if (hardwareOf(PROBE, plainSpec(PROBE)) == Hardware.SOFTWARE && !BuildConfig.ALLOW_SOFTWARE_KEYSTORE) {
+    if (hardwareOf(PROBE, plainSpec(PROBE)) == Hardware.SOFTWARE && !BuildConfig.DEVELOPMENT_KEYS) {
       throw KeystoreFailure("no_hardware", "the phone's key store is not backed by hardware")
     }
     if (BiometricManager.from(context).canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS) return Protection.BIOMETRIC
@@ -100,7 +100,37 @@ internal class SeedStore(private val context: Context) {
 
   // Making the key
 
-  fun create(activity: FragmentActivity, prompt: PromptText, done: (Result<Held>) -> Unit) = exclusively(done) { finish ->
+  /** Makes a new seed and stores it. */
+  fun create(activity: FragmentActivity, prompt: PromptText, done: (Result<Held>) -> Unit) = store(activity, prompt, done) { seed, publicKey ->
+    if (!Core.generateNative(seed, publicKey)) throw KeystoreFailure("failed", "the system's random source gave no seed")
+  }
+
+  /** Stores the seed 24 words stand for, as a new one is stored. The words are read in C. */
+  fun restore(activity: FragmentActivity, words: String, prompt: PromptText, done: (Result<Held>) -> Unit) {
+    val read = { seed: ByteArray, publicKey: ByteArray ->
+      val text = words.toByteArray(Charsets.UTF_8)
+      try {
+        val status = Core.seedFromWordsNative(text, seed, publicKey)
+        if (status != Core.WORDS_OK) throw KeystoreFailure("failed", "the text is not a seed's 24 words: status $status")
+      } finally {
+        text.fill(0)
+      }
+    }
+    // Read once before anything is deleted, made, or asked of the member, so that words that are no seed's change
+    // nothing; and again when the Keystore's key is ready for them, so that the seed is not kept through the prompt.
+    val seed = ByteArray(Core.SEED_LENGTH)
+    try {
+      read(seed, ByteArray(Core.PUBLIC_KEY_LENGTH))
+    } catch (thrown: Throwable) {
+      return done(Result.failure(thrown))
+    } finally {
+      seed.fill(0)
+    }
+    store(activity, prompt, done, read)
+  }
+
+  /** Stores a seed under a new Keystore key. `fill` writes the seed and its public key into the arrays it is given. */
+  private fun store(activity: FragmentActivity, prompt: PromptText, done: (Result<Held>) -> Unit, fill: (seed: ByteArray, publicKey: ByteArray) -> Unit) = exclusively(done) { finish ->
     // A record whose Keystore key is gone or invalidated opens nothing and is replaced; any other is the member's.
     held()?.let { if (!it.invalidated) throw KeystoreFailure("exists", "a key is already held, and a key is never overwritten") }
     val protection = protectionNow()
@@ -119,7 +149,7 @@ internal class SeedStore(private val context: Context) {
           val seed = ByteArray(Core.SEED_LENGTH)
           try {
             val publicKey = ByteArray(Core.PUBLIC_KEY_LENGTH)
-            if (!Core.generateNative(seed, publicKey)) throw KeystoreFailure("failed", "the system's random source gave no seed")
+            fill(seed, publicKey)
             write(Record(publicKey, protection, hardware, unlocked.iv, unlocked.doFinal(seed)))
             Held(publicKey, protection, hardware, invalidated = false)
           } finally {
@@ -133,10 +163,35 @@ internal class SeedStore(private val context: Context) {
     }
   }
 
-  // Signing
+  // Using the seed
 
   /** A signature by the held key over SHA-256 of the message, after the member authenticates. */
-  fun sign(activity: FragmentActivity, message: ByteArray, prompt: PromptText, done: (Result<ByteArray>) -> Unit) = exclusively(done) { finish ->
+  fun sign(activity: FragmentActivity, message: ByteArray, prompt: PromptText, done: (Result<ByteArray>) -> Unit) = withSeed(activity, prompt, done) { seed ->
+    val signature = ByteArray(Core.SIGNATURE_LENGTH)
+    if (!Core.signNative(seed, message, signature)) throw KeystoreFailure("failed", "the core made no signature")
+    signature
+  }
+
+  /**
+   * The held key's 24 words, after the member authenticates, for the native view that draws them and for nothing
+   * else: no call that JavaScript can make returns them. They are written in C into an array that is zeroed here;
+   * the strings a text view needs are the one copy this side keeps, until the view clears them.
+   */
+  fun words(activity: FragmentActivity, prompt: PromptText, done: (Result<List<String>>) -> Unit) = withSeed(activity, prompt, done) { seed ->
+    val text = ByteArray(Core.WORDS_SIZE)
+    try {
+      if (!Core.wordsNative(seed, text)) throw KeystoreFailure("failed", "the core gave no words")
+      val end = text.indexOf(0).let { if (it < 0) text.size else it }
+      val words = String(text, 0, end, Charsets.US_ASCII).split(' ')
+      if (words.size != Core.WORD_COUNT) throw KeystoreFailure("failed", "the core gave ${words.size} words")
+      words
+    } finally {
+      text.fill(0)
+    }
+  }
+
+  /** Opens the seed for one use, after the member authenticates, and zeroes it when the use returns. */
+  private fun <T> withSeed(activity: FragmentActivity, prompt: PromptText, done: (Result<T>) -> Unit, use: (seed: ByteArray) -> T) = exclusively(done) { finish ->
     val record = read() ?: throw KeystoreFailure("no_key", "no key is held")
     val cipher = openingCipher(record) ?: throw KeystoreFailure("key_invalidated", "the Keystore no longer opens the seed: a fingerprint or face was enrolled, or the screen lock removed")
     authenticate(activity, prompt, record.protection, cipher) { authenticated ->
@@ -145,9 +200,7 @@ internal class SeedStore(private val context: Context) {
           val seed = unlocked.doFinal(record.wrapped)
           try {
             if (seed.size != Core.SEED_LENGTH) throw KeystoreFailure("failed", "the seed opened to ${seed.size} bytes")
-            val signature = ByteArray(Core.SIGNATURE_LENGTH)
-            if (!Core.signNative(seed, message, signature)) throw KeystoreFailure("failed", "the core made no signature")
-            signature
+            use(seed)
           } finally {
             seed.fill(0)
           }
@@ -209,7 +262,7 @@ internal class SeedStore(private val context: Context) {
       }
     }
     val hardware = hardwareOf(ALIAS, spec)
-    if (hardware == Hardware.SOFTWARE && !BuildConfig.ALLOW_SOFTWARE_KEYSTORE) {
+    if (hardware == Hardware.SOFTWARE && !BuildConfig.DEVELOPMENT_KEYS) {
       keyStore.deleteEntry(ALIAS)
       throw KeystoreFailure("no_hardware", "the phone's key store is not backed by hardware")
     }
@@ -346,15 +399,23 @@ internal class SeedStore(private val context: Context) {
     }
   }
 
-  private companion object {
-    const val PROVIDER = "AndroidKeyStore"
-    const val ALIAS = "network.ararat.ark.keystore.seed"
-    const val PROBE = "network.ararat.ark.keystore.probe"
-    const val TRANSFORMATION = "AES/GCM/NoPadding"
-    const val TAG_BITS = 128
-    const val IV_LENGTH = 12
+  companion object {
+    @Volatile
+    private var only: SeedStore? = null
+
+    /** The app's one store: the module and the view that draws the words share it, and with it the one call in flight. */
+    fun of(context: Context): SeedStore = only ?: synchronized(this) {
+      only ?: SeedStore(context.applicationContext).also { only = it }
+    }
+
+    private const val PROVIDER = "AndroidKeyStore"
+    private const val ALIAS = "network.ararat.ark.keystore.seed"
+    private const val PROBE = "network.ararat.ark.keystore.probe"
+    private const val TRANSFORMATION = "AES/GCM/NoPadding"
+    private const val TAG_BITS = 128
+    private const val IV_LENGTH = 12
 
     /** The record's first byte, so that a later layout is told from this one. */
-    const val VERSION: Byte = 1
+    private const val VERSION: Byte = 1
   }
 }

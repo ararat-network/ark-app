@@ -11,8 +11,8 @@ changes `keystore/`, and each run is written at the end with its date, the phone
 | --- | --- | --- |
 | The core | The build machine | Seeds, keys, and signatures against the SDK, the signup vectors, and the transaction fixtures, byte for byte |
 | The TypeScript | The build machine | The keystore over a native module in memory: every refusal, and every answer native code could give wrongly |
-| iOS | The Simulator | A seed made, encrypted under the Simulator's Secure Enclave, opened, and signed with, twice; a second key refused; the key removed |
-| Android | An emulator | With no screen lock, a key refused as `no_passcode`. With a PIN, a key that takes the PIN made, and a prompt answered for making it and for each of two signatures |
+| iOS | The Simulator | A seed made, encrypted under the Simulator's Secure Enclave, opened, and signed with, twice; a second key refused; the key removed. Then a key stored from published words, its signature the SDK's byte for byte, and its words drawn |
+| Android | An emulator | With no screen lock, a key refused as `no_passcode`. With a PIN, a key that takes the PIN made, and a prompt answered for making it and for each of two signatures. Then the same key from published words, and its words read off the screen |
 
 ## What they cannot show
 
@@ -22,13 +22,16 @@ changes `keystore/`, and each run is written at the end with its date, the phone
 - **Invalidation.** That enrolling a fingerprint or face, or removing the passcode, ends the key, and what the phone
   says when it has.
 - **Android 9 and 10**, where a key takes biometrics alone and a phone without them is refused.
+- **The words kept from a recording.** That an iPhone clears them when a recording or mirroring starts, and that an
+  Android phone leaves them out of a screenshot and of the picture among recent apps.
 
 ## How to run it
 
 Install a build of the app on the phone: `pnpm ios --device` or `pnpm android --device` from `app/`, with the phone
 connected. The app's first screen is the scaffold. It shows the key on the phone, how it opens and what holds it, and
-has three buttons: **Make a key**, **Sign a test message**, and **Remove the key**. **Last result** says how the last
-one ended.
+has a button for each thing the keystore does: **Make a key**, **Sign a test message**, **Remove the key**, **Show
+the 24 words**, and **Hide the words**. **Last result** says how the last one ended, and the words are drawn at the
+foot of the screen.
 
 Use a phone with no Ark key that matters on it: the list removes the key more than once.
 
@@ -55,6 +58,15 @@ Use a phone with no Ark key that matters on it: the list removes the key more th
 10. **Turn the passcode off** with a key held. Opened again, the app shows "The phone no longer opens it".
 11. **Delete the app and install it again** with a key held. Write down whether the key is still shown: Apple
     documents neither outcome, and the keystore relies on neither.
+12. **Show the 24 words** asks for the face, finger, or passcode as a signature does, and draws 24 numbered words.
+    Entered into another wallet on coin type 330, they give the address the screen shows.
+13. **Leave the app** with the words drawn, by the home gesture and by the app switcher. The switcher's picture of
+    the app shows no words, and back in the app they are gone, with "The words were hidden when the app was left".
+14. **Start a screen recording** with the words drawn: they are cleared, with "The words were hidden when the screen
+    began to be recorded". With a recording running, **Show the 24 words** ends in "The words are not shown while the
+    screen is being recorded or shared". The same with the screen mirrored to another display.
+15. **Take a screenshot** with the words drawn. It holds them: iOS gives an app no way to refuse one. Delete it.
+16. **With VoiceOver on**, each word is read with its number.
 
 ## Android phone
 
@@ -76,6 +88,13 @@ Use a phone with no Ark key that matters on it: the list removes the key more th
 11. **On a phone with a weak face unlock and no fingerprint**, the key made is the passcode's, as in 2.
 12. **Android 9 or 10, where one can be had.** With a fingerprint enrolled, 6 to 8 hold. With none, **Make a key**
     ends in "This phone needs a fingerprint or face enrolled to hold a key".
+13. **Show the 24 words** asks for the finger or the screen lock as a signature does, and draws 24 numbered words.
+    Entered into another wallet on coin type 330, they give the address the screen shows.
+14. **Take a screenshot, and start a recording,** with the words drawn. The screenshot is refused or blank, and the
+    recording shows a blank screen where the app is.
+15. **Open recent apps** with the words drawn: the app's picture there is blank. Back in the app the words are gone,
+    with "The words were hidden when the app was left".
+16. **With TalkBack on**, each word is read with its number.
 
 ## Runs
 

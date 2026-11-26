@@ -7,18 +7,29 @@
 // It never touches a key it did not make: with one already held it stops
 // before doing anything, so no build that ran it by mistake costs a member
 // their key.
-import { isLowS, toHex, utf8Encode, verifyMessage } from "@ararat-network/sdk";
+import { isLowS, privateKeyFromMnemonic, publicKeyFromPrivate, signMessage, toHex, utf8Encode, verifyMessage } from "@ararat-network/sdk";
 import { SignerRefusal } from "../src/refusal.ts";
-import { type DeviceKey, type DeviceKeystore, deviceKeystore } from "./keystore.ts";
-import { KeystoreError, type KeystoreNative, type KeystorePrompt, keystoreErrorOf } from "./native.ts";
+import { type DeviceKey, type DeviceKeystore, deviceKeystore, type KeystorePromptPurpose } from "./keystore.ts";
+import { KeystoreError, type KeystoreNative, type KeystorePrompt, type KeystoreWordsView, keystoreErrorOf } from "./native.ts";
 
 /** The words every line of the check begins with: what a script looks for in the device's log. */
 export const DEVICE_CHECK_PREFIX = "ark-keystore";
 
+/**
+ * The words the check restores a key from, in a development build: BIP-39's own test vector for a seed of 32 bytes
+ * of 0x7f, which is also the seed the core's self-check signs with. They are published, and no member's.
+ */
+export const DEVICE_CHECK_WORDS =
+  "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+
 export interface DeviceCheckOptions {
-  prompt(purpose: "create" | "sign"): KeystorePrompt;
+  prompt(purpose: KeystorePromptPurpose): KeystorePrompt;
   /** Takes each line as it is known. */
   log(line: string): void;
+  /** The native view that draws the words, where the screen has one mounted. */
+  wordsView?(): KeystoreWordsView | null | undefined;
+  /** Waits while the words are drawn, so that whoever is checking the screen can read them; nothing by default. */
+  whileWordsShown?(): Promise<void>;
 }
 
 const kindOf = (thrown: unknown): string => {
@@ -134,7 +145,49 @@ export async function checkOnDevice(native: KeystoreNative | null | undefined, o
     say(`sign-refused=${none}`);
     if (none !== "no_key") throw new Error(`signing with no key was refused as ${none}, not as no_key`);
 
-    say(`device-check=ok protection=${key.protection} hardware=${key.hardware}`);
+    // A development build takes a key from its words, which is how the check holds the phone to a key it knows.
+    let restored = "";
+    if (typeof native.restoreWords === "function") {
+      step = "restore from words";
+      const known = privateKeyFromMnemonic(DEVICE_CHECK_WORDS);
+      say("prompt=restore");
+      const again = await keystore.restoreDevelopmentKey(DEVICE_CHECK_WORDS);
+      made = true;
+      if (toHex(again.publicKey) !== toHex(publicKeyFromPrivate(known))) throw new Error("the key restored is not the one the SDK derives from the same words");
+      say(`restored address=${again.address}`);
+
+      // The same key signs the same bytes everywhere: the phone's signature is the SDK's, byte for byte.
+      step = "sign as the SDK signs";
+      const message = utf8Encode("ark-keystore device check: signed by a key the check knows");
+      say("prompt=sign");
+      const signature = await keystore.adapter.sign(again.address, message);
+      if (toHex(signature) !== toHex(signMessage(message, known))) throw new Error("the signature is not the one the SDK makes with the same key");
+      say("signed-as-sdk=1");
+
+      const view = options.wordsView?.();
+      if (view) {
+        step = "draw the words";
+        say("prompt=words");
+        await keystore.showWords(view);
+        say("words-shown=1");
+        await options.whileWordsShown?.();
+        await view.hide();
+        say("words-hidden=1");
+      }
+
+      step = "restore while a key is held";
+      const twice = await refused("restoring over a key", () => keystore.restoreDevelopmentKey(DEVICE_CHECK_WORDS));
+      say(`restore-refused=${twice}`);
+      if (twice !== "exists") throw new Error(`restoring over a key was refused as ${twice}, not as exists`);
+
+      step = "remove the restored key";
+      await keystore.remove();
+      made = false;
+      if ((await keystore.key()) !== null) throw new Error("a key is held after the restored one was removed");
+      restored = view ? " restored=1 words=1" : " restored=1";
+    }
+
+    say(`device-check=ok protection=${key.protection} hardware=${key.hardware}${restored}`);
     return true;
   } catch (thrown) {
     const kind = thrown instanceof KeystoreError || thrown instanceof SignerRefusal ? `${thrown.kind}: ` : "";

@@ -45,6 +45,94 @@ void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_S
   ark_zeroise(digest, sizeof digest);
 }
 
+// The size the header gives for a seed's words is the one their longest form takes.
+typedef char ark_words_size_is_right[ARK_WORDS_SIZE == ARK_WORD_COUNT * ARK_BIP39_WORD_MAX_LENGTH + (ARK_WORD_COUNT - 1) + 1 ? 1 : -1];
+
+int ark_keystore_words(const uint8_t seed[ARK_SEED_LENGTH], char words[ARK_WORDS_SIZE]) {
+  ark_mnemonic_from_seed(seed, words);
+  return 1;
+}
+
+// The index of a word in the list, which is in alphabetical order, or -1.
+static int word_index(const char *word) {
+  int low = 0;
+  int high = ARK_BIP39_WORD_COUNT - 1;
+  while (low <= high) {
+    int middle = (low + high) / 2;
+    int order = strcmp(word, ARK_BIP39_ENGLISH[middle]);
+    if (order == 0) return middle;
+    if (order < 0) {
+      high = middle - 1;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return -1;
+}
+
+static int parts_words(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+
+int ark_keystore_seed_from_words(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown) {
+  // BIP-39 in reverse: each word is 11 bits, its index; 24 of them are the 256 bits of the seed and 8 of checksum.
+  uint8_t bits[33];
+  uint8_t digest[ARK_SHA256_LENGTH];
+  char word[ARK_BIP39_WORD_MAX_LENGTH + 1];
+  int words = 0;
+  int first_unknown = -1;
+  int status;
+  memset(bits, 0, sizeof bits);
+
+  const char *at = text;
+  while (*at != '\0') {
+    while (parts_words(*at)) at++;
+    if (*at == '\0') break;
+    size_t length = 0;
+    int fits = 1;
+    while (*at != '\0' && !parts_words(*at)) {
+      char c = *at++;
+      if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+      if (length < ARK_BIP39_WORD_MAX_LENGTH) {
+        word[length++] = c;
+      } else {
+        fits = 0;
+      }
+    }
+    word[length] = '\0';
+    int index = fits ? word_index(word) : -1;
+    if (index < 0) {
+      if (first_unknown < 0) first_unknown = words;
+    } else if (words < ARK_WORD_COUNT && first_unknown < 0) {
+      for (int bit = 0; bit < 11; bit++) {
+        int position = words * 11 + bit;
+        if ((index >> (10 - bit)) & 1) bits[position / 8] |= (uint8_t)(1u << (7 - position % 8));
+      }
+    }
+    words++;
+  }
+
+  if (first_unknown >= 0) {
+    status = ARK_WORDS_UNKNOWN;
+  } else if (words < ARK_WORD_COUNT) {
+    status = ARK_WORDS_INCOMPLETE;
+  } else if (words > ARK_WORD_COUNT) {
+    status = ARK_WORDS_TOO_MANY;
+  } else {
+    ark_sha256(bits, ARK_SEED_LENGTH, digest);
+    status = digest[0] == bits[ARK_SEED_LENGTH] ? ARK_WORDS_OK : ARK_WORDS_CHECKSUM;
+  }
+  if (status == ARK_WORDS_OK) {
+    memcpy(seed, bits, ARK_SEED_LENGTH);
+  } else {
+    memset(seed, 0, ARK_SEED_LENGTH);
+  }
+  if (count != NULL) *count = words;
+  if (unknown != NULL) *unknown = first_unknown;
+  ark_zeroise(bits, sizeof bits);
+  ark_zeroise(digest, sizeof digest);
+  ark_zeroise(word, sizeof word);
+  return status;
+}
+
 // A context to sign with, blinded with fresh randomness against side channels.
 static secp256k1_context *signing_context(void) {
   uint8_t randomness[32];

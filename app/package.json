@@ -14,7 +14,7 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "check:ios": "EXPO_PUBLIC_ARK_DEVICE_CHECK=1 expo run:ios --configuration Release --no-bundler && ./scripts/check-native.sh ios",
-    "check:android": "EXPO_PUBLIC_ARK_DEVICE_CHECK=1 ORG_GRADLE_PROJECT_arkKeystoreAllowSoftware=true expo run:android --variant release --no-bundler && ./scripts/check-native.sh android",
+    "check:android": "EXPO_PUBLIC_ARK_DEVICE_CHECK=1 ORG_GRADLE_PROJECT_arkKeystoreDevelopment=true expo run:android --variant release --no-bundler && ./scripts/check-native.sh android",
     "prebuild": "expo prebuild --clean --no-install",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test 'src/**/*.test.ts'",

@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KEY_HARDWARE, KEY_PROTECTIONS, KEYSTORE_CHECKS, KEYSTORE_ERRORS, KeystoreError } from "@ararat-network/signer/keystore";
-import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus } from "./keystore-status";
+import {
+  KEY_HARDWARE,
+  KEY_PROTECTIONS,
+  KEYSTORE_CHECKS,
+  KEYSTORE_ERRORS,
+  KEYSTORE_PROMPT_PURPOSES,
+  KeystoreError,
+  WORDS_HIDDEN,
+} from "@ararat-network/signer/keystore";
+import { keyStatus, keystoreErrorString, keystorePrompt, keystoreStatus, wordsHiddenString } from "./keystore-status";
 import { type StringKey, strings } from "./strings";
 
 const has = (key: string): key is StringKey => key in strings && strings[key as StringKey].length > 0;
@@ -47,10 +55,17 @@ test("every kind of keystore error has a string of its own, and anything else th
   }
 });
 
-test("each prompt has a title, a reason, and a cancel button, and the two prompts differ", () => {
-  const create = keystorePrompt("create");
-  const sign = keystorePrompt("sign");
-  for (const prompt of [create, sign]) for (const text of [prompt.title, prompt.reason, prompt.cancel]) assert.ok(text.length > 0);
-  assert.notEqual(create.title, sign.title);
-  assert.notEqual(create.reason, sign.reason);
+test("every prompt has a title, a reason, and a cancel button, and one made to sign reads otherwise than one made to show the words", () => {
+  for (const purpose of KEYSTORE_PROMPT_PURPOSES) {
+    const prompt = keystorePrompt(purpose);
+    for (const text of [prompt.title, prompt.reason, prompt.cancel]) assert.ok(text.length > 0, purpose);
+  }
+  const reasons = new Set(["create", "sign", "words"].map((purpose) => keystorePrompt(purpose as "create" | "sign" | "words").reason));
+  assert.equal(reasons.size, 3);
+});
+
+test("every reason the words are hidden for has a string of its own", () => {
+  const keys = WORDS_HIDDEN.map(wordsHiddenString);
+  assert.equal(new Set(keys).size, WORDS_HIDDEN.length);
+  for (const key of keys) assert.ok(has(key), key);
 });

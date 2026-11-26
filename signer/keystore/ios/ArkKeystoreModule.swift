@@ -2,8 +2,10 @@ import ExpoModulesCore
 import Foundation
 
 // The keystore's iOS side, as JavaScript calls it. The seed's storage and
-// its one use are in SeedStore.swift; this file turns its answers into what
-// crosses to JavaScript. No call here takes or returns a seed or a key.
+// its uses are in SeedStore.swift, and the view that draws its 24 words in
+// ArkKeystoreWordsView.swift; this file turns their answers into what crosses
+// to JavaScript. No call here returns a seed, a key, or the words, and in a
+// build for a phone none takes them.
 public class ArkKeystoreModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ArkKeystore")
@@ -41,6 +43,35 @@ public class ArkKeystoreModule: Module {
     AsyncFunction("remove") { () in
       try answering { try SeedStore.remove() }
     }
+
+    #if targetEnvironment(simulator)
+      // Stores the key a seed's 24 words stand for. Only a build for the Simulator has this call, which is how a
+      // test loads a key it knows: no build for a phone takes words from JavaScript.
+      AsyncFunction("restoreWords") { (words: String, _: KeystorePrompt) -> [String: Any] in
+        try answering { describe(try SeedStore.restore(words: words)) }
+      }
+    #endif
+
+    // The view that draws the key's 24 words. They are drawn by it and returned by no call.
+    View(ArkKeystoreWordsView.self) {
+      Events("onHide")
+
+      Prop("wordColor") { (view: ArkKeystoreWordsView, color: String?) in
+        view.setWordColor(color)
+      }
+
+      Prop("numberColor") { (view: ArkKeystoreWordsView, color: String?) in
+        view.setNumberColor(color)
+      }
+
+      AsyncFunction("show") { (view: ArkKeystoreWordsView, prompt: KeystorePrompt, promise: Promise) in
+        view.show(reason: prompt.reason, cancel: prompt.cancel, promise: promise)
+      }
+
+      AsyncFunction("hide") { (view: ArkKeystoreWordsView) in
+        view.hide()
+      }
+    }
   }
 }
 
@@ -60,11 +91,16 @@ private func describe(_ held: SeedStore.Held) -> [String: Any] {
   ]
 }
 
-/// Runs a call, and turns its failure into the error JavaScript reads the kind of from its code.
+/// A failure as the error JavaScript reads the kind of from its code.
+func keystoreException(_ failure: KeystoreFailure) -> Exception {
+  Exception(name: "ArkKeystoreException", description: failure.reason, code: "ERR_ARK_KEYSTORE_" + failure.kind.rawValue.uppercased())
+}
+
+/// Runs a call, and turns its failure into that error.
 private func answering<T>(_ call: () throws -> T) throws -> T {
   do {
     return try call()
   } catch let failure as KeystoreFailure {
-    throw Exception(name: "ArkKeystoreException", description: failure.reason, code: "ERR_ARK_KEYSTORE_" + failure.kind.rawValue.uppercased())
+    throw keystoreException(failure)
   }
 }

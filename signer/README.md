@@ -13,7 +13,8 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The review of a transaction, and the SDK's `Signer` | Built |
 | The device keystore's core: the seed to the key and the key to a signature, in C, linked into the phone app | Built |
 | The device keystore's protection at rest: the seed under the phone's hardware key, and each signature behind the member's authentication | Built, and run on the Simulator and an emulator; [the checks only a phone can make](docs/KEYSTORE_PHONE_CHECKLIST.md) have not been run |
-| The device keystore's backup and recovery | Designed |
+| The device keystore's 24 words, shown: read back into a seed in the C, and drawn for the member by a native view, never in JavaScript | Built, and run on the Simulator and an emulator; not on a phone |
+| The device keystore's 24 words, entered, and its cloud backup | Designed |
 | The Ledger adapter | Built |
 | The handoff protocol | Designed |
 
@@ -40,9 +41,10 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [ledger/emulator/](ledger/emulator/ledger.emu.ts) | The adapter's tests against the Ark device app on the emulator, with the ledger-ark release and the SHA-256 of each binary they load. |
 | [testdata/ledger/exchanges.json](testdata/ledger/exchanges.json) | Every command and answer of an emulator run, recorded. The adapter's unit tests replay them, and CI fails when a fresh run records anything else. |
 | [keystore/](keystore/index.ts) | The device keystore, exported as `@ararat-network/signer/keystore`: the key the phone holds and the key adapter over it ([keystore.ts](keystore/keystore.ts)), the native module's calls and the words it answers in ([native.ts](keystore/native.ts)), Swift in `ios/`, and Kotlin with its JNI entries in `android/`. |
+| [keystore/ios/ArkKeystoreWordsView.swift](keystore/ios/ArkKeystoreWordsView.swift), and its [Kotlin](keystore/android/src/main/java/network/ararat/ark/keystore/ArkKeystoreWordsView.kt) | The native view that draws the key's 24 words, which the app places on its screen and which hands them to nothing. |
 | [keystore/device-check.ts](keystore/device-check.ts) | A check of the keystore that runs on a device, exported as `@ararat-network/signer/keystore/device-check`: it makes a key, signs with it, and removes it, and says what it found on one line each. |
 | [docs/KEYSTORE_PHONE_CHECKLIST.md](docs/KEYSTORE_PHONE_CHECKLIST.md) | What of the keystore only a phone can show, checked by hand, and each run of the list. |
-| [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the 24 words, the derivation, and signing, with the command line in `test/` that the host tests drive. |
+| [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the 24 words and the reading of them, the derivation, and signing, with the command line in `test/` that the host tests drive. |
 | [keystore/native/secp256k1/](keystore/native/secp256k1/COPYING) | libsecp256k1 at the release and commit in [SECP256K1_VERSION](keystore/native/SECP256K1_VERSION), copied by [scripts/sync-secp256k1.sh](scripts/sync-secp256k1.sh). CI fails when the copy is not that release's, file for file. |
 | [expo-module.config.json](expo-module.config.json) | Where Expo finds the keystore's native projects, so an app that depends on this package links them as it would any module's. |
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | The order the rest is built in. |
@@ -310,8 +312,9 @@ wraps it.
   low-S), zeroises the seed and the key, and returns the signature. The raw key is handled in C alone, beside
   libsecp256k1: Swift and Kotlin pass bytes through, since neither can be relied on to zeroise memory. JavaScript
   sees the address, the public key, and signatures.
-- **Not exported.** No call returns the seed or the key except the backup flow below, which runs in the same module.
-  The hardware key is bound to the device and never leaves it; a new device gets a new one.
+- **Not exported.** No call returns the seed, the key, or the words that stand for the seed. The words are drawn for
+  the member by a native view and reach nothing else ([the 24 words](#the-24-words)). The hardware key is bound to
+  the device and never leaves it; a new device gets a new one.
 
 **What this does not protect, and the alternative.** The key is in the app's memory while it signs, so a phone whose
 operating system is compromised can read it then: the hardware protects the key at rest and gates its use, and no
@@ -398,8 +401,10 @@ it, and the key adapter the pipeline signs through.
 **Keys for development.** Neither the Simulator nor an emulator has the hardware, and each is given a key only by a
 build made to run there. A build for the Simulator, and no build for a phone, makes a key with no authentication on
 it, since the Simulator refuses every key that has any. On Android a key store with no hardware behind it is refused
-unless the build was made with the Gradle property `arkKeystoreAllowSoftware`, which the emulator check sets. Both
-report their hardware as `software`, so the app can say that a key is a development key and no member's.
+unless the build was made with the Gradle property `arkKeystoreDevelopment`, which the emulator check sets. Both
+report their hardware as `software`, so the app can say that a key is a development key and no member's. The same
+two builds, and no build for a phone, have the one call that takes a key's words from JavaScript
+([the 24 words](#the-24-words)).
 
 **What has been run, and what has not.** The TypeScript is tested over a native module in memory. On the Simulator
 and an emulator, in CI, the app makes a key through the real module, signs twice with it, checks each signature
@@ -415,6 +420,42 @@ key.
 Nothing has run on a phone. That the hardware key is in hardware, authentication on iOS at all, a real fingerprint
 or face, invalidation on iOS and what it is reported as, and Android 9 and 10 are on
 [a list checked by hand](docs/KEYSTORE_PHONE_CHECKLIST.md), which has not been run.
+
+### The 24 words
+
+The seed is 256 bits as BIP-39 has them, so it is also 24 words, and a member who writes them down has the key
+wherever they go. The words are the seed in another form, and are kept from JavaScript as the seed is.
+
+- **Drawn by native code.** `ArkKeystoreWordsView` is a view of Swift's and Kotlin's that the app places on its
+  screen like any other and asks to show the words. The member authenticates, the seed is opened as it is for a
+  signature, the C writes its words, and the view draws them, numbered, in three columns read downward. What comes
+  back to JavaScript is that it did. No call returns them
+  ([iOS](keystore/ios/ArkKeystoreWordsView.swift),
+  [Android](keystore/android/src/main/java/network/ararat/ark/keystore/ArkKeystoreWordsView.kt)).
+- **Cleared when they should not be seen.** The view clears the words when the app asks, when the app is left, and
+  when it leaves the screen, and tells the app when it did so itself. On Android the window is marked secure while
+  they are drawn, so the system leaves them out of screenshots, recordings, and the picture among recent apps. On
+  iOS the view refuses to draw them while the screen is recorded or mirrored, as `screen_captured`, and clears them
+  when that starts. iOS gives an app no way to refuse a screenshot, so one taken while they are drawn holds them.
+- **In memory while they are on the screen.** The C writes them into a buffer that is wiped, and the text a label
+  needs is the copy that remains until the view clears it. A screen reader reads each word with its number, as a
+  member who cannot see the screen needs.
+- **Read back in the C.** `ark_keystore_seed_from_words` takes a text and says whether it is a seed's 24 words:
+  letters in either case and any spacing, with the word that is not of the list named by its position, and a
+  checksum that does not hold told apart from a word that is wrong. A view for typing them in is built on it next.
+- **A key from its words, in a development build alone.** `restoreWords` stores the key 24 words stand for, as a new
+  key is stored. A build for the Simulator has it, and an Android build made with `arkKeystoreDevelopment`; no build
+  for a phone has any call that takes words from JavaScript. It is how the device check loads a key it knows: it
+  restores BIP-39's own published test words, checks the public key against the SDK's, and compares the phone's
+  signature with the SDK's over the same bytes, byte for byte.
+
+**What has been run.** The core's reading of words is held against the SDK's on the build machine: every word of the
+list, the seeds' own words read back, and 600 random texts of 24 words agreeing with the SDK on whether their
+checksum holds. On the Simulator and an emulator, in CI, the app restores the published words, signs as the SDK
+signs, and has the view draw them; on the emulator the script then reads the screen's accessibility tree for the
+first and the last word. Seen by hand, once: the 24 words drawn on the Simulator, and cleared there when the app was
+left, with the app told why; and a screenshot taken on the emulator while they were drawn, which was blank. Not run:
+any of it on a phone, the clearing when an iOS recording starts, and the clearing when the app is left on Android.
 
 ### What the platforms document
 
@@ -458,6 +499,11 @@ Decided: C. A at signup, since a lost phone during the hold must cost the member
 there is something to protect and the member has seen a payment arrive, as the way out of the platform account and of
 the app. Neither Apple, Google, nor Ark can read the blob, and the hardware key is never backed up. The keystore keeps
 the whole 256-bit seed, not the derived key alone, so the 24 words can be shown when B is offered.
+
+B is built first, and A on it: the keystore shows the words today ([the 24 words](#the-24-words)), takes them back
+next, and A's restore then stores a seed the way B's does. That is the order of building. When the app offers B is
+the app's to decide: A is the only backup until a member has written the words down, so the app may offer them at
+signup to whoever wants them, and again before the first stake.
 
 ## Permissions
 

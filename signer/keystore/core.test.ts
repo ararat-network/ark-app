@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { fromBase64, isValidMnemonic, privateKeyFromMnemonic, publicKeyFromPrivate, signMessage, toHex, utf8Encode } from "@ararat-network/sdk";
 import { fixtureKey, txFixtures } from "../src/testing/fixtures.ts";
 import { signupVectors } from "../src/testing/vectors.ts";
+import { DEVICE_CHECK_WORDS } from "./device-check.ts";
 
 const native = fileURLToPath(new URL("native/", import.meta.url));
 let cli = "";
@@ -156,6 +157,102 @@ test("a new seed is 32 bytes no other call gave, with the public key the SDK der
   }
   assert.equal(new Set(made.map(([seed]) => seed)).size, made.length, "no seed is given twice");
   assert.ok(!made.some(([seed]) => seed === "00".repeat(32)), "the source's bytes are in the seed");
+});
+
+// What the core says of a text read as words: its status, how many words it read, the first unknown, and the seed.
+const read = (text: string): { status: number; count: number; unknown: number; seed: string } => {
+  const [status, count, unknown, seed] = run("words", text).split(" ");
+  return { status: Number(status), count: Number(count), unknown: Number(unknown), seed: seed ?? "" };
+};
+const [OK, INCOMPLETE, UNKNOWN, TOO_MANY, CHECKSUM] = [0, 1, 2, 3, 4];
+const NO_SEED = "00".repeat(32);
+
+test("the words the device check restores from are those of the seed the self-check signs with", () => {
+  assert.equal(run("mnemonic", "7f".repeat(32)), DEVICE_CHECK_WORDS);
+  assert.deepEqual(read(DEVICE_CHECK_WORDS), { status: OK, count: 24, unknown: -1, seed: "7f".repeat(32) });
+});
+
+test("the word list is in the order a search of it relies on", () => {
+  const header = readFileSync(join(native, "ark_bip39_english.h"), "utf8");
+  const words = [...header.slice(header.indexOf("ARK_BIP39_ENGLISH[")).matchAll(/"([a-z]+)"/g)].map((m) => m[1] ?? "");
+  for (let i = 1; i < words.length; i++)
+    assert.ok(Buffer.compare(Buffer.from(words[i - 1] ?? ""), Buffer.from(words[i] ?? "")) < 0, `${words[i - 1]} before ${words[i]}`);
+});
+
+test("a seed's words read back as that seed, and every word of the list is read", () => {
+  const seeds = ["00".repeat(32), "7f".repeat(32), "80".repeat(32), "ff".repeat(32), ...Array.from({ length: 40 }, () => randomBytes(32).toString("hex"))];
+  for (const seed of seeds) assert.deepEqual(read(run("mnemonic", seed)), { status: OK, count: 24, unknown: -1, seed }, seed);
+
+  // Every one of the 2048 words, each in a text of 24 that reads as incomplete or whole and never as unknown.
+  const header = readFileSync(join(native, "ark_bip39_english.h"), "utf8");
+  const words = [...header.slice(header.indexOf("ARK_BIP39_ENGLISH[")).matchAll(/"([a-z]+)"/g)].map((m) => m[1] ?? "");
+  for (let i = 0; i < words.length; i += 23) {
+    const some = words.slice(i, i + 23);
+    assert.deepEqual(read(some.join(" ")), { status: INCOMPLETE, count: some.length, unknown: -1, seed: NO_SEED }, `words from ${i}`);
+  }
+});
+
+test("words are read in either case and with any spacing, as the member typed them", () => {
+  const seed = randomBytes(32).toString("hex");
+  const words = run("mnemonic", seed).split(" ");
+  const typed = [
+    words.join("  "),
+    `  ${words.join(" ")}  `,
+    words.join("\n"),
+    words.join(" \t\r\n "),
+    words.join(" ").toUpperCase(),
+    words.map((word, i) => (i % 2 ? word : `${word[0]?.toUpperCase()}${word.slice(1)}`)).join(" "),
+  ];
+  for (const text of typed) assert.deepEqual(read(text), { status: OK, count: 24, unknown: -1, seed }, JSON.stringify(text));
+});
+
+test("a text that is not a seed's words is told from one that is, and gives no seed", () => {
+  const words = run("mnemonic", randomBytes(32).toString("hex")).split(" ");
+  const withWord = (at: number, word: string): string => words.map((w, i) => (i === at ? word : w)).join(" ");
+
+  assert.deepEqual(read(""), { status: INCOMPLETE, count: 0, unknown: -1, seed: NO_SEED });
+  assert.deepEqual(read("   \n "), { status: INCOMPLETE, count: 0, unknown: -1, seed: NO_SEED });
+  assert.deepEqual(read(words.slice(0, 23).join(" ")), { status: INCOMPLETE, count: 23, unknown: -1, seed: NO_SEED });
+  assert.deepEqual(read([...words, "abandon"].join(" ")), { status: TOO_MANY, count: 25, unknown: -1, seed: NO_SEED });
+
+  // A word of the list in place of another breaks the checksum, but for the one in 256 that keeps it.
+  const other = words[23] === "zoo" ? "zone" : "zoo";
+  const swapped = read(withWord(23, other));
+  assert.ok(swapped.status === CHECKSUM || swapped.status === OK);
+  assert.equal(swapped.status === OK, isValidMnemonic(withWord(23, other)));
+
+  for (const [at, word] of [
+    [0, "abandonn"],
+    [7, "zzz"],
+    [23, "abandonment"],
+    [3, "ab"],
+    [11, "act1"],
+    [12, "act,"],
+    [5, "caf\u00e9"],
+    [9, "\u5bc6\u7801"],
+  ] as const) {
+    assert.deepEqual(read(withWord(at, word)), { status: UNKNOWN, count: 24, unknown: at, seed: NO_SEED }, word);
+  }
+  // The first unknown word is the one named, however many follow.
+  assert.equal(read(`${words.slice(0, 4).join(" ")} nope ${words.slice(5).join(" ")} nor this`).unknown, 4);
+  // A word still being typed is not of the list yet.
+  assert.deepEqual(read(`${words.slice(0, 6).join(" ")} aban`), { status: UNKNOWN, count: 7, unknown: 6, seed: NO_SEED });
+});
+
+test("24 words of the list are a seed's exactly when the SDK says their checksum holds", () => {
+  const header = readFileSync(join(native, "ark_bip39_english.h"), "utf8");
+  const list = [...header.slice(header.indexOf("ARK_BIP39_ENGLISH[")).matchAll(/"([a-z]+)"/g)].map((m) => m[1] ?? "");
+  for (let i = 0; i < 600; i++) {
+    const text = Array.from({ length: 24 }, () => list[randomBytes(2).readUInt16BE() % list.length]).join(" ");
+    const answer = read(text);
+    assert.equal(answer.status === OK, isValidMnemonic(text), text);
+    assert.ok(answer.status === OK || answer.status === CHECKSUM);
+    if (answer.status === OK) {
+      assert.equal(run("mnemonic", answer.seed), text, "the seed read is the one those words stand for");
+    } else {
+      assert.equal(answer.seed, NO_SEED);
+    }
+  }
 });
 
 test("a seed that is not 32 bytes is not taken", () => {

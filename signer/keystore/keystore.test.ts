@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { publicKeyFromPrivate, publicKeyToAddress, randomPrivateKey, utf8Encode, verifyMessage } from "@ararat-network/sdk";
 import { REFUSAL_KINDS, SignerRefusal } from "../src/refusal.ts";
-import { deviceKeystore, isDevelopmentKey } from "./keystore.ts";
+import { deviceKeystore, isDevelopmentKey, type KeystorePromptPurpose } from "./keystore.ts";
 import { KEYSTORE_ERROR_CODE, KEYSTORE_ERRORS, KeystoreError, type KeystoreNative, type KeystorePrompt, keystoreErrorOf, type NativeKey } from "./native.ts";
 import { fakeNative, nativeError } from "./testing/fake_native.ts";
 
-const prompt = (purpose: "create" | "sign"): KeystorePrompt => ({ title: `title of ${purpose}`, reason: `reason to ${purpose}`, cancel: "cancel" });
+const prompt = (purpose: KeystorePromptPurpose): KeystorePrompt => ({ title: `title of ${purpose}`, reason: `reason to ${purpose}`, cancel: "cancel" });
 const message = utf8Encode("what is signed");
 
 const rejection = async (call: () => Promise<unknown>): Promise<unknown> => {
@@ -196,4 +196,42 @@ test("a native rejection is read by its code, and anything else is a fault", () 
   assert.equal(keystoreErrorOf(null).kind, "failed");
   const already = new KeystoreError("locked_out", "kept");
   assert.equal(keystoreErrorOf(already), already);
+});
+
+test("the words are drawn by the native view after a prompt, and what stops it is a kind", async () => {
+  const native = fakeNative({ privateKey: randomPrivateKey() });
+  const keystore = deviceKeystore(native, { prompt });
+  await keystore.showWords(native.wordsView);
+  assert.equal(native.wordsView.shown, true);
+  assert.deepEqual(native.prompts, [prompt("words")]);
+
+  await native.wordsView.hide();
+  native.wordsView.captured = true;
+  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "screen_captured");
+  native.wordsView.captured = false;
+  native.failNext = nativeError("authentication_failed");
+  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "authentication_failed");
+  assert.equal(native.wordsView.shown, false);
+
+  native.invalidate();
+  assert.equal((await keystoreError(() => keystore.showWords(native.wordsView))).kind, "key_invalidated");
+  const empty = fakeNative();
+  assert.equal((await keystoreError(() => deviceKeystore(empty, { prompt }).showWords(empty.wordsView))).kind, "no_key");
+});
+
+test("a key is restored from its words in a development build alone", async () => {
+  const words =
+    "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+  const phone = deviceKeystore(fakeNative({ hardware: "strongbox" }), { prompt });
+  assert.equal((await keystoreError(() => phone.restoreDevelopmentKey(words))).kind, "failed");
+  assert.equal(await phone.key(), null);
+
+  const native = fakeNative({ available: "none", hardware: "software", development: true });
+  const keystore = deviceKeystore(native, { prompt });
+  const key = await keystore.restoreDevelopmentKey(words);
+  assert.equal(key.address, publicKeyToAddress(key.publicKey));
+  assert.deepEqual(native.prompts, [prompt("restore")]);
+  assert.deepEqual(await keystore.key(), key);
+  assert.equal((await keystoreError(() => keystore.restoreDevelopmentKey(words))).kind, "exists");
+  assert.equal((await keystoreError(() => deviceKeystore(fakeNative({ development: true }), { prompt }).restoreDevelopmentKey("not words"))).kind, "failed");
 });

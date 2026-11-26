@@ -7,9 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ark_keystore.h"
+
 #define ARK_PRIVATE_KEY_LENGTH 32
-// 24 words of at most 8 letters, 23 spaces, and the terminator.
-#define ARK_MNEMONIC_SIZE (24 * 8 + 23 + 1)
+#define ARK_MNEMONIC_SIZE ARK_WORDS_SIZE
 
 // The 24 words of a seed, as one string with a space between each.
 void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_SIZE]);

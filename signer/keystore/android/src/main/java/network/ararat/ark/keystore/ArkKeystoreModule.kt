@@ -11,10 +11,12 @@ import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
 // The keystore's Android side, as JavaScript calls it. The seed's storage and
-// its one use are in SeedStore.kt; this file turns its answers into what
-// crosses to JavaScript. No call here takes or returns a seed or a key.
+// its uses are in SeedStore.kt, and the view that draws its 24 words in
+// ArkKeystoreWordsView.kt; this file turns their answers into what crosses to
+// JavaScript. No call here returns a seed, a key, or the words, and in a
+// build for a phone none takes them.
 class ArkKeystoreModule : Module() {
-  private val store by lazy { SeedStore(appContext.reactContext ?: throw Exceptions.ReactContextLost()) }
+  private val store by lazy { SeedStore.of(appContext.reactContext ?: throw Exceptions.ReactContextLost()) }
 
   override fun definition() = ModuleDefinition {
     Name("ArkKeystore")
@@ -52,6 +54,31 @@ class ArkKeystoreModule : Module() {
     AsyncFunction("remove") {
       answering { store.remove() }
     }
+
+    // Stores the key a seed's 24 words stand for. Only a development build has this call, which is how a test
+    // loads a key it knows: no build for a phone takes words from JavaScript.
+    if (BuildConfig.DEVELOPMENT_KEYS) {
+      AsyncFunction("restoreWords") { words: String, prompt: KeystorePrompt, promise: Promise ->
+        store.restore(activity(), words, prompt.text()) { made -> made.fold({ promise.resolve(describe(it)) }, { promise.reject(coded(it)) }) }
+      }
+    }
+
+    // The view that draws the key's 24 words. They are drawn by it and returned by no call.
+    View(ArkKeystoreWordsView::class) {
+      Events("onHide")
+
+      Prop("wordColor") { view: ArkKeystoreWordsView, color: String? -> view.setWordColor(color) }
+
+      Prop("numberColor") { view: ArkKeystoreWordsView, color: String? -> view.setNumberColor(color) }
+
+      AsyncFunction("show") { view: ArkKeystoreWordsView, prompt: KeystorePrompt, promise: Promise ->
+        view.post { view.show(prompt.text(), promise) }
+      }
+
+      AsyncFunction("hide") { view: ArkKeystoreWordsView ->
+        view.post { view.hide() }
+      }
+    }
   }
 
   // The system's prompt is shown over the app's own screen, so there has to be one.
@@ -78,7 +105,7 @@ private fun describe(held: Held): Map<String, Any> = mapOf(
 )
 
 /** A failure as the error JavaScript reads the kind of from its code. */
-private fun coded(thrown: Throwable): CodedException {
+internal fun coded(thrown: Throwable): CodedException {
   val failure = thrown as? KeystoreFailure ?: KeystoreFailure("failed", thrown.javaClass.simpleName + ": " + thrown.message, thrown)
   return CodedException("ERR_ARK_KEYSTORE_" + failure.kind.uppercase(), failure.message, failure.cause)
 }

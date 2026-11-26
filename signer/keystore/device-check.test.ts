@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { randomPrivateKey, signMessage } from "@ararat-network/sdk";
-import { checkOnDevice } from "./device-check.ts";
+import { isValidMnemonic, privateKeyFromMnemonic, publicKeyFromPrivate, publicKeyToAddress, randomPrivateKey, signMessage } from "@ararat-network/sdk";
+import { checkOnDevice, DEVICE_CHECK_WORDS } from "./device-check.ts";
+import type { KeystorePromptPurpose } from "./keystore.ts";
 import type { KeystorePrompt } from "./native.ts";
 import { fakeNative, nativeError } from "./testing/fake_native.ts";
 
-const prompt = (purpose: "create" | "sign"): KeystorePrompt => ({ title: purpose, reason: purpose, cancel: "cancel" });
+const prompt = (purpose: KeystorePromptPurpose): KeystorePrompt => ({ title: purpose, reason: purpose, cancel: "cancel" });
 
 async function run(native: Parameters<typeof checkOnDevice>[0]): Promise<{ passed: boolean; lines: string[] }> {
   const lines: string[] = [];
@@ -117,4 +118,73 @@ test("a create that is not refused where the phone said it would be fails the ch
   assert.equal(passed, false);
   assert.match(lines.at(-1) ?? "", /device-check=failed create on a phone that can have no key: making a key was not refused$/);
   assert.equal(await native.key(), null, "the key it should not have been given is removed");
+});
+
+test("the words the check restores from are a seed's, and published", () => {
+  assert.ok(isValidMnemonic(DEVICE_CHECK_WORDS));
+  assert.equal(DEVICE_CHECK_WORDS.split(" ").length, 24);
+});
+
+test("a development build is also held to a key the check knows: restored, signed with as the SDK signs, and its words drawn", async () => {
+  const native = fakeNative({ available: "none", hardware: "software", development: true });
+  const lines: string[] = [];
+  let waited = 0;
+  const passed = await checkOnDevice(native, {
+    prompt,
+    log: (line) => lines.push(line),
+    wordsView: () => native.wordsView,
+    whileWordsShown: async () => {
+      assert.equal(native.wordsView.shown, true, "the words are drawn while the check waits");
+      waited += 1;
+    },
+  });
+  assert.ok(passed, lines.join("\n"));
+  const address = publicKeyToAddress(publicKeyFromPrivate(privateKeyFromMnemonic(DEVICE_CHECK_WORDS)));
+  assert.deepEqual(lines.slice(lines.indexOf("ark-keystore sign-refused=no_key") + 1), [
+    "ark-keystore prompt=restore",
+    `ark-keystore restored address=${address}`,
+    "ark-keystore prompt=sign",
+    "ark-keystore signed-as-sdk=1",
+    "ark-keystore prompt=words",
+    "ark-keystore words-shown=1",
+    "ark-keystore words-hidden=1",
+    "ark-keystore restore-refused=exists",
+    "ark-keystore device-check=ok protection=none hardware=software restored=1 words=1",
+  ]);
+  assert.equal(waited, 1);
+  assert.equal(native.wordsView.shown, false);
+  assert.equal(await native.key(), null, "the restored key is removed again");
+});
+
+test("a development build whose screen has no words view is checked without it", async () => {
+  const native = fakeNative({ development: true });
+  const lines: string[] = [];
+  assert.ok(await checkOnDevice(native, { prompt, log: (line) => lines.push(line) }));
+  assert.equal(lines.at(-1), "ark-keystore device-check=ok protection=biometric hardware=secure_enclave restored=1");
+  assert.ok(!lines.some((line) => line.includes("words-shown")));
+});
+
+test("a restored key that signs otherwise than the SDK fails the check, which removes it", async () => {
+  const native = fakeNative({ development: true });
+  const sign = native.sign;
+  let calls = 0;
+  const other = randomPrivateKey();
+  native.sign = async (message, shown) => {
+    calls += 1;
+    // Two for the key it made, one refused once that key is removed, and the fourth is the restored key's.
+    return calls === 4 ? signMessage(message, other) : sign(message, shown);
+  };
+  const lines: string[] = [];
+  assert.equal(await checkOnDevice(native, { prompt, log: (line) => lines.push(line) }), false);
+  assert.equal(lines.at(-1), "ark-keystore device-check=failed sign as the SDK signs: the signature is not the one the SDK makes with the same key");
+  assert.equal(await native.key(), null);
+});
+
+test("words that are not drawn fail the check at that step, by the kind, and the restored key is removed", async () => {
+  const native = fakeNative({ development: true });
+  native.wordsView.captured = true;
+  const lines: string[] = [];
+  assert.equal(await checkOnDevice(native, { prompt, log: (line) => lines.push(line), wordsView: () => native.wordsView }), false);
+  assert.match(lines.at(-1) ?? "", /^ark-keystore device-check=failed draw the words: screen_captured: /);
+  assert.equal(await native.key(), null);
 });

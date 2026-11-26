@@ -74,10 +74,10 @@ English diagnostic a member never reads; what a member reads is a string resourc
 
 ## Stages
 
-### 4. The device keystore, with backup A
+### 4. The device keystore, with its backups
 
 `keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin, over a C core.
-It is built in four pull requests, of which the first three are done:
+It is built in six pull requests, of which the first four are done:
 
 1. The platforms' documentation read against the design
    ([what the platforms document](../README.md#what-the-platforms-document)).
@@ -87,14 +87,26 @@ It is built in four pull requests, of which the first three are done:
 3. Protection at rest ([README](../README.md#protection-at-rest)): the seed made in native code and encrypted under
    the hardware key, authentication for each signature, the two kinds of key, the refusals, and the key adapter the
    pipeline signs through, checked on the simulator and the emulator in CI.
-4. Backup A.
+4. Backup B, the 24 words, shown ([README](../README.md#the-24-words)): the words read back into a seed in the C,
+   a native view that draws them, so that they never reach JavaScript, and a key stored from its words, which only a
+   development build takes from JavaScript and which is how the device check holds a phone to a key it knows.
+5. Backup B, the 24 words, entered: a native view the member types the words into, which restores from them and
+   checks them against the key held, with nothing of them in JavaScript.
+6. Backup A.
 
-What is left, in 4:
+The order was A alone, with B left to the staking flow that offers it. It is B first: the keystore can show and take
+the words from the start, they need no cloud, no key derivation, and no new dependency, everything of them runs on
+the simulator and the emulator, and storing a key from a seed is the half of A's restore that A then need not build.
+When the app offers B is still the app's to decide, and is not decided by this.
 
-- Backup option A in the same module: the seed encrypted under a key derived by Argon2id from a recovery secret the
-  member chooses, kept in the platform account's keychain. Its restore is also how a test loads a known key, so a
-  release build holds no import made for tests, and with a fixture's seed restored the module's signatures are held
-  to the core's byte for byte. Backup B, the mnemonic, is built with the staking flow that offers it.
+What is left, in 5 and 6:
+
+- **A native view for entering the words.** A text field of the platform's own, with its suggestions and learning
+  off, which says how many words it holds and whether they are a seed's and never what they are. It restores a key
+  from them, as a new key is stored, and says whether they are the words of the key held, which is the check that a
+  member wrote them down. The core already reads a text as words and says which word is not of the list.
+- **Backup option A** in the same module: the seed encrypted under a key derived by Argon2id from a recovery secret
+  the member chooses, kept in the platform account's keychain, and restored through the same storing of a seed.
 
 What is left that no pull request closes:
 
@@ -107,9 +119,13 @@ What is left that no pull request closes:
   otherwise. The checklist's step 9 on an iPhone says which it is; if it is the second, the fix is to keep the
   biometric set's state beside the key and compare it, which the platform exposes.
 - **The app's own line for Face ID** is in the app's configuration, in English, until `i18n` holds it.
+- **iOS gives an app no way to refuse a screenshot.** The view that draws the words clears them when a recording or
+  mirroring starts and when the app is left, and Android leaves them out of screenshots altogether; a screenshot
+  taken on an iPhone while they are drawn holds them. The app's screen says so to the member.
 
-Done: wrap and unwrap are tested on both platforms; with a fixture's seed restored the module's signatures equal
-the core's, which the host tests hold to the signup vectors and the transaction fixtures byte for byte; a phone with
+Done: wrap and unwrap are tested on both platforms; with a known seed restored the module's signatures equal the
+SDK's byte for byte, on the simulator and the emulator, and the core's are held by the host tests to the signup
+vectors and the transaction fixtures; a phone with
 no passcode is tested on the emulator, and on iOS by the checklist, since the Simulator has no passcode to remove; and
 what the simulator and the emulator cannot show, the hardware itself and an enrolment on iOS, is on a checklist that
 is run on a phone.
