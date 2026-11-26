@@ -200,6 +200,7 @@ From this directory, with pnpm through corepack on Node 22.13 or later:
 
 ```sh
 pnpm install
+(cd ../signer && pnpm install)   # the signer is taken by path, and brings none of its own dependencies
 pnpm lint
 pnpm check
 pnpm test
@@ -207,10 +208,14 @@ pnpm check:ios        # builds, installs on the booted simulator, and runs the k
 pnpm check:android    # the same on the running emulator
 ```
 
-The first three need nothing but Node. The last two need the native toolchains: Xcode with an iOS simulator and
-CocoaPods; and for Android a JDK 17, the Android SDK with the NDK the pinned React Native names, and an emulator, with
-`JAVA_HOME` and `ANDROID_HOME` set. `pnpm ios` and `pnpm android` build the debug app and start the bundler for
-development.
+The signer's own dependencies are installed in its directory, since the app takes it by path and its source looks
+for them there: without them the type check and the bundler cannot find the SDK the signer imports. CI installs the
+ones it runs with and leaves out the ones it is developed with.
+
+Linting, the type check, and the tests need nothing but Node. The last two need the native toolchains: Xcode with
+an iOS simulator and CocoaPods; and for Android a JDK 17, the Android SDK with the NDK the pinned React Native names,
+and an emulator, with `JAVA_HOME` and `ANDROID_HOME` set. `pnpm ios` and `pnpm android` build the debug app and start
+the bundler for development.
 
 The native projects are generated at build time from [app.json](app.json) and the pinned Expo SDK, into `ios/` and
 `android/`, which are ignored. What is built is fixed by that config and that pin, so a change to either is what a

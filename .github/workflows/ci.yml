@@ -178,6 +178,10 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       - run: pnpm check
       - run: pnpm test
 
@@ -205,6 +209,10 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       - name: Boot a simulator
         run: |
           xcodebuild -version
@@ -235,6 +243,10 @@ jobs:
           java-version: 17
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       # The emulator needs hardware virtualisation, which the runner has once its device is opened to the runner's user.
       - name: Enable KVM
         run: |
