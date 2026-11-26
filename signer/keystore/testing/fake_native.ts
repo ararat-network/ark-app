@@ -1,8 +1,15 @@
 // A native module in memory, for the tests: it answers as Swift and Kotlin
 // do, with a private key held in JavaScript where theirs is under the phone's
 // hardware. Test-only.
-import { publicKeyFromPrivate, randomPrivateKey, signMessage } from "@ararat-network/sdk";
-import { KEYSTORE_ERROR_CODE, type KeystoreErrorKind, type KeystoreNative, type KeystorePrompt, type NativeKey } from "../native.ts";
+import { isValidMnemonic, privateKeyFromMnemonic, publicKeyFromPrivate, randomPrivateKey, signMessage } from "@ararat-network/sdk";
+import {
+  KEYSTORE_ERROR_CODE,
+  type KeystoreErrorKind,
+  type KeystoreNative,
+  type KeystorePrompt,
+  type KeystoreSeedPhraseView,
+  type NativeKey,
+} from "../native.ts";
 
 /** A rejection as a native call makes it: an error with a code. */
 export function nativeError(kind: KeystoreErrorKind, message = `the fake refuses: ${kind}`): Error {
@@ -21,9 +28,11 @@ export interface FakeNative extends KeystoreNative {
   readonly prompts: KeystorePrompt[];
   /** Every message signed, in order. */
   readonly signed: Uint8Array[];
+  /** The view that draws the words, which here only says whether it is drawing them. */
+  readonly seedPhraseView: KeystoreSeedPhraseView & { shown: boolean; captured: boolean };
 }
 
-export function fakeNative(initial: { available?: string; hardware?: string; privateKey?: Uint8Array } = {}): FakeNative {
+export function fakeNative(initial: { available?: string; hardware?: string; privateKey?: Uint8Array; development?: boolean } = {}): FakeNative {
   let privateKey: Uint8Array | null = null;
   let held: NativeKey | null = null;
   const hold = (key: Uint8Array, protection: string, hardware: string): NativeKey => {
@@ -73,8 +82,38 @@ export function fakeNative(initial: { available?: string; hardware?: string; pri
     async remove(): Promise<void> {
       privateKey = null;
       held = null;
+      fake.seedPhraseView.shown = false;
+    },
+    seedPhraseView: {
+      shown: false,
+      captured: false,
+      async show(prompt: KeystorePrompt): Promise<void> {
+        if (fake.seedPhraseView.captured) throw nativeError("screen_captured");
+        if (!held) throw nativeError("no_key");
+        if (held.invalidated) throw nativeError("key_invalidated");
+        fake.prompts.push(prompt);
+        if (fake.failNext !== undefined) {
+          const failure = fake.failNext;
+          fake.failNext = undefined;
+          throw failure;
+        }
+        fake.seedPhraseView.shown = true;
+      },
+      async hide(): Promise<void> {
+        fake.seedPhraseView.shown = false;
+      },
     },
   };
+  // Only a development build has the call that takes words from JavaScript.
+  if (initial.development) {
+    fake.restoreSeedPhrase = async (words: string, prompt: KeystorePrompt): Promise<NativeKey> => {
+      if (held) throw nativeError("exists");
+      if (fake.available.startsWith("no_")) throw nativeError(fake.available as KeystoreErrorKind);
+      if (!isValidMnemonic(words)) throw nativeError("failed", "the text is not a seed's 24 words");
+      fake.prompts.push(prompt);
+      return hold(privateKeyFromMnemonic(words), fake.available, fake.hardware);
+    };
+  }
   if (initial.privateKey) hold(initial.privateKey, fake.available, fake.hardware);
   return fake;
 }

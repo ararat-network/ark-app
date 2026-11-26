@@ -118,7 +118,27 @@ enum SeedStore {
 
   // MARK: - Making the key
 
+  /// Makes a new seed and stores it.
   static func create() throws -> Held {
+    try store { seed, memberKey in
+      guard ark_keystore_generate(seed, memberKey) == 1 else {
+        throw KeystoreFailure(.failed, "the system's random source gave no seed")
+      }
+    }
+  }
+
+  /// Stores the seed 24 words stand for, as a new one is stored. The words are read in C.
+  static func restore(seedPhrase: String) throws -> Held {
+    try store { seed, memberKey in
+      let status = seedPhrase.withCString { ark_keystore_seed_from_phrase($0, seed, nil, nil) }
+      guard status == ARK_SEED_PHRASE_OK, ark_keystore_public_key(seed, memberKey) == 1 else {
+        throw KeystoreFailure(.failed, "the text is not a seed's 24 words: status \(status)")
+      }
+    }
+  }
+
+  /// Stores a seed under a new Enclave key. `fill` writes the seed and its public key into the memory it is given.
+  private static func store(_ fill: (_ seed: UnsafeMutablePointer<UInt8>, _ memberKey: UnsafeMutablePointer<UInt8>) throws -> Void) throws -> Held {
     guard inFlight.try() else { throw KeystoreFailure(.failed, "another keystore call is in flight") }
     defer { inFlight.unlock() }
 
@@ -131,23 +151,25 @@ enum SeedStore {
     case .available(let made): protection = made
     case .unavailable(let kind): throw KeystoreFailure(kind, "this phone can be given no key: \(kind.rawValue)")
     }
-    try deleteAll()
 
+    // The seed is written in C, into memory this call owns and wipes, and is handed to the system without a copy.
+    // It is had before anything is deleted or made, so that words that are no seed's change nothing.
+    let seed = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(ARK_SEED_LENGTH))
+    defer {
+      ark_keystore_wipe(seed, Int(ARK_SEED_LENGTH))
+      seed.deallocate()
+    }
+    var memberKey = [UInt8](repeating: 0, count: Int(ARK_PUBLIC_KEY_LENGTH))
+    try memberKey.withUnsafeMutableBufferPointer { buffer in
+      guard let base = buffer.baseAddress else { throw KeystoreFailure(.failed, "no memory for the public key") }
+      try fill(seed, base)
+    }
+
+    try deleteAll()
     let privateKey = try makeEnclaveKey(protection)
     do {
       guard let publicKey = SecKeyCopyPublicKey(privateKey), SecKeyIsAlgorithmSupported(publicKey, .encrypt, algorithm) else {
         throw KeystoreFailure(.failed, "the Secure Enclave's key does not encrypt with the scheme the keystore uses")
-      }
-
-      // The seed is made in C, into memory this call owns and wipes, and is handed to the system without a copy.
-      let seed = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(ARK_SEED_LENGTH))
-      defer {
-        ark_keystore_wipe(seed, Int(ARK_SEED_LENGTH))
-        seed.deallocate()
-      }
-      var memberKey = [UInt8](repeating: 0, count: Int(ARK_PUBLIC_KEY_LENGTH))
-      guard ark_keystore_generate(seed, &memberKey) == 1 else {
-        throw KeystoreFailure(.failed, "the system's random source gave no seed")
       }
       guard let plain = CFDataCreateWithBytesNoCopy(nil, seed, Int(ARK_SEED_LENGTH), kCFAllocatorNull) else {
         throw KeystoreFailure(.failed, "the seed could not be handed to the Secure Enclave")
@@ -174,10 +196,36 @@ enum SeedStore {
     }
   }
 
-  // MARK: - Signing
+  // MARK: - Using the seed
 
   /// A signature by the held key over SHA-256 of the message, after the member authenticates.
   static func sign(_ message: Data, reason: String, cancel: String) throws -> Data {
+    try withSeed(reason: reason, cancel: cancel) { seed in
+      var signature = [UInt8](repeating: 0, count: Int(ARK_SIGNATURE_LENGTH))
+      let signed = message.withUnsafeBytes { bytes in
+        ark_keystore_sign(seed, bytes.bindMemory(to: UInt8.self).baseAddress, message.count, &signature)
+      }
+      guard signed == 1 else { throw KeystoreFailure(.failed, "the core made no signature") }
+      return Data(signature)
+    }
+  }
+
+  /// The held key's 24 words, after the member authenticates, for the native view that draws them and for nothing
+  /// else: no call that JavaScript can make returns them. They are written in C into a buffer that is wiped here;
+  /// the strings a label needs are the one copy this side keeps, until the view clears them.
+  static func seedPhrase(reason: String, cancel: String) throws -> [String] {
+    try withSeed(reason: reason, cancel: cancel) { seed in
+      var text = [CChar](repeating: 0, count: Int(ARK_SEED_PHRASE_SIZE))
+      defer { ark_keystore_wipe(&text, text.count) }
+      guard ark_keystore_seed_phrase(seed, &text) == 1 else { throw KeystoreFailure(.failed, "the core gave no words") }
+      let words = String(cString: text).split(separator: " ").map(String.init)
+      guard words.count == Int(ARK_WORD_COUNT) else { throw KeystoreFailure(.failed, "the core gave \(words.count) words") }
+      return words
+    }
+  }
+
+  /// Opens the seed for one use, after the member authenticates, and wipes it when the use returns.
+  private static func withSeed<T>(reason: String, cancel: String, _ use: (UnsafePointer<UInt8>) throws -> T) throws -> T {
     guard inFlight.try() else { throw KeystoreFailure(.failed, "another keystore call is in flight") }
     defer { inFlight.unlock() }
 
@@ -202,13 +250,7 @@ enum SeedStore {
     guard let seed = CFDataGetBytePtr(plain) else { throw KeystoreFailure(.failed, "the seed opened to nothing") }
     defer { ark_keystore_wipe(UnsafeMutableRawPointer(mutating: seed), length) }
     guard length == Int(ARK_SEED_LENGTH) else { throw KeystoreFailure(.failed, "the seed opened to \(length) bytes") }
-
-    var signature = [UInt8](repeating: 0, count: Int(ARK_SIGNATURE_LENGTH))
-    let signed = message.withUnsafeBytes { bytes in
-      ark_keystore_sign(seed, bytes.bindMemory(to: UInt8.self).baseAddress, message.count, &signature)
-    }
-    guard signed == 1 else { throw KeystoreFailure(.failed, "the core made no signature") }
-    return Data(signature)
+    return try use(seed)
   }
 
   // MARK: - Removing
@@ -394,6 +436,7 @@ struct KeystoreFailure: Error {
     case authenticationFailed = "authentication_failed"
     case lockedOut = "locked_out"
     case keyInvalidated = "key_invalidated"
+    case screenCaptured = "screen_captured"
     case failed
   }
 

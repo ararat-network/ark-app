@@ -11,9 +11,10 @@ android {
   defaultConfig {
     versionCode 1
     versionName "0.0.0"
-    // Whether a key store with no hardware behind it is taken: an emulator's. A build says so with the Gradle
-    // property, as the checks that run on an emulator do, and no other build takes one.
-    buildConfigField "boolean", "ALLOW_SOFTWARE_KEYSTORE", (findProperty("arkKeystoreAllowSoftware") ?: "false").toString()
+    // Whether this is a build for development, on an emulator: one that takes a key store with no hardware behind
+    // it, and a key from its words out of JavaScript, which is how a test loads a key it knows. A build says so
+    // with the Gradle property, as the checks that run on an emulator do, and no other build does either.
+    buildConfigField "boolean", "DEVELOPMENT_KEYS", (findProperty("arkKeystoreDevelopment") ?: "false").toString()
   }
   buildFeatures {
     buildConfig true

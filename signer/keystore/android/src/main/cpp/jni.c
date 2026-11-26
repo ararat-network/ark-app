@@ -3,6 +3,7 @@
 // only form Android's own cipher takes or gives; here it is copied to the
 // stack, used, and wiped, and Kotlin zeroes the array.
 #include <jni.h>
+#include <stdlib.h>
 
 #include "ark_keystore.h"
 
@@ -49,4 +50,45 @@ Java_network_ararat_ark_keystore_Core_signNative(JNIEnv *env, jobject self, jbyt
   if (!signed_it) return JNI_FALSE;
   (*env)->SetByteArrayRegion(env, signature, 0, ARK_SIGNATURE_LENGTH, (const jbyte *)made);
   return JNI_TRUE;
+}
+
+// The seed's 24 words into the array, as ASCII with a terminator.
+JNIEXPORT jboolean JNICALL
+Java_network_ararat_ark_keystore_Core_seedPhraseNative(JNIEnv *env, jobject self, jbyteArray seed, jbyteArray words) {
+  (void)self;
+  uint8_t held[ARK_SEED_LENGTH];
+  char made[ARK_SEED_PHRASE_SIZE];
+  if (!has_length(env, seed, ARK_SEED_LENGTH) || !has_length(env, words, ARK_SEED_PHRASE_SIZE)) return JNI_FALSE;
+  (*env)->GetByteArrayRegion(env, seed, 0, ARK_SEED_LENGTH, (jbyte *)held);
+  int ok = ark_keystore_seed_phrase(held, made);
+  ark_keystore_wipe(held, sizeof held);
+  if (ok) (*env)->SetByteArrayRegion(env, words, 0, ARK_SEED_PHRASE_SIZE, (const jbyte *)made);
+  ark_keystore_wipe(made, sizeof made);
+  return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Reads a text as a seed's words: the core's answer, with the seed and its public key written when it is
+// ARK_SEED_PHRASE_OK. A text longer than any 24 words could be is not read.
+JNIEXPORT jint JNICALL
+Java_network_ararat_ark_keystore_Core_seedFromPhraseNative(JNIEnv *env, jobject self, jbyteArray text, jbyteArray seed, jbyteArray public_key) {
+  (void)self;
+  uint8_t made[ARK_SEED_LENGTH];
+  uint8_t made_public[ARK_PUBLIC_KEY_LENGTH];
+  if (text == NULL || !has_length(env, seed, ARK_SEED_LENGTH) || !has_length(env, public_key, ARK_PUBLIC_KEY_LENGTH)) return ARK_SEED_PHRASE_UNKNOWN;
+  jsize length = (*env)->GetArrayLength(env, text);
+  if (length > 4096) return ARK_SEED_PHRASE_TOO_MANY;
+  char *copy = malloc((size_t)length + 1);
+  if (copy == NULL) return ARK_SEED_PHRASE_UNKNOWN;
+  (*env)->GetByteArrayRegion(env, text, 0, length, (jbyte *)copy);
+  copy[length] = '\0';
+  int status = ark_keystore_seed_from_phrase(copy, made, NULL, NULL);
+  ark_keystore_wipe(copy, (size_t)length + 1);
+  free(copy);
+  if (status == ARK_SEED_PHRASE_OK && !ark_keystore_public_key(made, made_public)) status = ARK_SEED_PHRASE_UNKNOWN;
+  if (status == ARK_SEED_PHRASE_OK) {
+    (*env)->SetByteArrayRegion(env, seed, 0, ARK_SEED_LENGTH, (const jbyte *)made);
+    (*env)->SetByteArrayRegion(env, public_key, 0, ARK_PUBLIC_KEY_LENGTH, (const jbyte *)made_public);
+  }
+  ark_keystore_wipe(made, sizeof made);
+  return status;
 }

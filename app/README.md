@@ -16,7 +16,8 @@ is rewritten as what is once it is built.
 
 The scaffold is the app with nothing in it yet. It has one screen, which asks the signer's
 [keystore](../signer/README.md#protection-at-rest) to check its core, shows the key the phone holds, and has a button
-for each thing the keystore does: make a key, sign a test message, remove the key. It exists to show that the pieces
+for each thing the keystore does: make a key, sign a test message, remove the key, and show its seed phrase, which the
+keystore's own native view draws and the app's JavaScript never has. It exists to show that the pieces
 every later step needs are in place: the native projects generated from [app.json](app.json), the signer taken by
 path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both platforms and runs
 the keystore there. It is also how the keystore is
@@ -157,7 +158,8 @@ projects, what is built is fixed by the pinned Expo SDK and the app's config, wh
 
 ### What it never holds
 
-- A plaintext seed, key, or mnemonic at rest. The mnemonic is shown once and never stored.
+- A plaintext seed, key, or seed phrase at rest. The seed phrase is drawn by the keystore's native view and is never in
+  the app's JavaScript, on the screen or off it.
 - The phone number after its verification, or anything else that names a person. What the service keeps is its own
   design, and nothing in it names a person either
   ([identity data](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#identity-data)).
@@ -225,8 +227,10 @@ The two checks build the app with `EXPO_PUBLIC_ARK_DEVICE_CHECK=1`, and only suc
 [device check](../signer/keystore/device-check.ts) when it opens: it makes a key, signs twice, and removes the key,
 and stops before doing anything where a key is already held. On the emulator the check sets a PIN of its own, types
 it into the system's prompt, and clears it when it ends, so it is run on an emulator with no screen lock that
-matters. The Android check also builds with the Gradle property `arkKeystoreAllowSoftware`, without which the
-keystore refuses an emulator's key store, which has no hardware behind it.
+matters. The Android check also builds with the Gradle property `arkKeystoreDevelopment`, without which the
+keystore refuses an emulator's key store, which has no hardware behind it, and takes no key from its words. With it,
+and on the Simulator, the check goes on to store a key from published words, compare its signature with the SDK's,
+and have the keystore's native view draw the words.
 
 Five things about the build that are not obvious:
 

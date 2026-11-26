@@ -34,6 +34,11 @@ export const KEYSTORE_UNAVAILABLE = [
 export type KeystoreUnavailable = (typeof KEYSTORE_UNAVAILABLE)[number];
 
 /**
+ * The name of the native view that draws the key's 24 words: what the app asks Expo for, beside the module's name.
+ */
+export const KEYSTORE_SEED_PHRASE_VIEW = "ArkKeystoreSeedPhraseView";
+
+/**
  * The text of the system's authentication prompt, passed in so that it is a string resource like any other. Android
  * shows the title and the reason, and the cancel button on a prompt that takes biometrics alone; iOS shows the
  * reason where it shows any, and the cancel button.
@@ -54,6 +59,21 @@ export interface NativeKey {
   readonly invalidated: boolean;
 }
 
+/**
+ * The native view that draws the held key's 24 words, as the app's reference to it answers. Swift and Kotlin draw
+ * them: no call here returns them, and nothing of them crosses to JavaScript.
+ */
+export interface KeystoreSeedPhraseView {
+  /** Draws the words, after the member authenticates. It refuses while the screen is recorded or mirrored. */
+  show(prompt: KeystorePrompt): Promise<void>;
+  /** Clears them. The view also clears them itself when the app leaves the foreground or a recording starts. */
+  hide(): Promise<void>;
+}
+
+/** Why the view cleared the words itself, as its `onHide` event says. */
+export const SEED_PHRASE_HIDDEN = ["background", "capture"] as const;
+export type SeedPhraseHidden = (typeof SEED_PHRASE_HIDDEN)[number];
+
 export interface KeystoreNative {
   /** Whether the C core in this build derives the key and makes the signature a fixed seed must give. */
   selfCheck(): boolean;
@@ -67,6 +87,12 @@ export interface KeystoreNative {
   sign(message: Uint8Array, prompt: KeystorePrompt): Promise<Uint8Array>;
   /** Destroys the hardware key and the encrypted seed. With no backup, the key is gone for good. */
   remove(): Promise<void>;
+  /**
+   * Stores the key a seed's 24 words stand for, as `create` stores a new one. Only a development build has this
+   * call, one made for the Simulator or an emulator: it is how a test loads a key it knows. No build for a phone
+   * takes a member's words from JavaScript.
+   */
+  restoreSeedPhrase?(words: string, prompt: KeystorePrompt): Promise<NativeKey>;
 }
 
 /**
@@ -85,6 +111,8 @@ export const KEYSTORE_ERRORS = [
   "locked_out",
   /** The hardware key no longer opens the seed: a fingerprint or face was enrolled, or the passcode removed. */
   "key_invalidated",
+  /** The words were not drawn because the screen is being recorded or mirrored. */
+  "screen_captured",
   /** Anything else: a fault. */
   "failed",
 ] as const;

@@ -21,7 +21,7 @@ static int system_random(uint8_t *bytes, size_t length) { return getentropy(byte
 
 // BIP-39: the seed, then the first byte of its SHA-256 as a checksum, read as
 // 24 groups of 11 bits, each the index of a word.
-void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_SIZE]) {
+int ark_keystore_seed_phrase(const uint8_t seed[ARK_SEED_LENGTH], char mnemonic[ARK_SEED_PHRASE_SIZE]) {
   uint8_t bits[33];
   uint8_t digest[ARK_SHA256_LENGTH];
   size_t at = 0;
@@ -43,6 +43,90 @@ void ark_mnemonic_from_seed(const uint8_t seed[32], char mnemonic[ARK_MNEMONIC_S
   mnemonic[at] = '\0';
   ark_zeroise(bits, sizeof bits);
   ark_zeroise(digest, sizeof digest);
+  return 1;
+}
+
+// The size the header gives for a seed phrase is the one its longest form takes.
+typedef char ark_seed_phrase_size_is_right[ARK_SEED_PHRASE_SIZE == ARK_WORD_COUNT * ARK_BIP39_WORD_MAX_LENGTH + (ARK_WORD_COUNT - 1) + 1 ? 1 : -1];
+
+// The index of a word in the list, which is in alphabetical order, or -1.
+static int word_index(const char *word) {
+  int low = 0;
+  int high = ARK_BIP39_WORD_COUNT - 1;
+  while (low <= high) {
+    int middle = (low + high) / 2;
+    int order = strcmp(word, ARK_BIP39_ENGLISH[middle]);
+    if (order == 0) return middle;
+    if (order < 0) {
+      high = middle - 1;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return -1;
+}
+
+static int parts_words(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+
+int ark_keystore_seed_from_phrase(const char *text, uint8_t seed[ARK_SEED_LENGTH], int *count, int *unknown) {
+  // BIP-39 in reverse: each word is 11 bits, its index; 24 of them are the 256 bits of the seed and 8 of checksum.
+  uint8_t bits[33];
+  uint8_t digest[ARK_SHA256_LENGTH];
+  char word[ARK_BIP39_WORD_MAX_LENGTH + 1];
+  int words = 0;
+  int first_unknown = -1;
+  int status;
+  memset(bits, 0, sizeof bits);
+
+  const char *at = text;
+  while (*at != '\0') {
+    while (parts_words(*at)) at++;
+    if (*at == '\0') break;
+    size_t length = 0;
+    int fits = 1;
+    while (*at != '\0' && !parts_words(*at)) {
+      char c = *at++;
+      if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+      if (length < ARK_BIP39_WORD_MAX_LENGTH) {
+        word[length++] = c;
+      } else {
+        fits = 0;
+      }
+    }
+    word[length] = '\0';
+    int index = fits ? word_index(word) : -1;
+    if (index < 0) {
+      if (first_unknown < 0) first_unknown = words;
+    } else if (words < ARK_WORD_COUNT && first_unknown < 0) {
+      for (int bit = 0; bit < 11; bit++) {
+        int position = words * 11 + bit;
+        if ((index >> (10 - bit)) & 1) bits[position / 8] |= (uint8_t)(1u << (7 - position % 8));
+      }
+    }
+    words++;
+  }
+
+  if (first_unknown >= 0) {
+    status = ARK_SEED_PHRASE_UNKNOWN;
+  } else if (words < ARK_WORD_COUNT) {
+    status = ARK_SEED_PHRASE_INCOMPLETE;
+  } else if (words > ARK_WORD_COUNT) {
+    status = ARK_SEED_PHRASE_TOO_MANY;
+  } else {
+    ark_sha256(bits, ARK_SEED_LENGTH, digest);
+    status = digest[0] == bits[ARK_SEED_LENGTH] ? ARK_SEED_PHRASE_OK : ARK_SEED_PHRASE_CHECKSUM;
+  }
+  if (status == ARK_SEED_PHRASE_OK) {
+    memcpy(seed, bits, ARK_SEED_LENGTH);
+  } else {
+    memset(seed, 0, ARK_SEED_LENGTH);
+  }
+  if (count != NULL) *count = words;
+  if (unknown != NULL) *unknown = first_unknown;
+  ark_zeroise(bits, sizeof bits);
+  ark_zeroise(digest, sizeof digest);
+  ark_zeroise(word, sizeof word);
+  return status;
 }
 
 // A context to sign with, blinded with fresh randomness against side channels.
@@ -96,7 +180,7 @@ int ark_private_key_from_seed(const uint8_t seed[32], uint8_t private_key[ARK_PR
   static const uint8_t salt[] = {'m', 'n', 'e', 'm', 'o', 'n', 'i', 'c'};
   static const uint8_t master[] = {'B', 'i', 't', 'c', 'o', 'i', 'n', ' ', 's', 'e', 'e', 'd'};
   static const uint32_t path[5] = {44 | HARDENED, 330 | HARDENED, 0 | HARDENED, 0, 0};
-  char mnemonic[ARK_MNEMONIC_SIZE];
+  char mnemonic[ARK_SEED_PHRASE_SIZE];
   uint8_t stretched[ARK_SHA512_LENGTH];
   uint8_t mac[ARK_SHA512_LENGTH];
   uint8_t key[32];
@@ -108,7 +192,7 @@ int ark_private_key_from_seed(const uint8_t seed[32], uint8_t private_key[ARK_PR
     memset(private_key, 0, ARK_PRIVATE_KEY_LENGTH);
     return 0;
   }
-  ark_mnemonic_from_seed(seed, mnemonic);
+  ark_keystore_seed_phrase(seed, mnemonic);
   ark_pbkdf2_hmac_sha512((const uint8_t *)mnemonic, strlen(mnemonic), salt, sizeof salt, 2048, stretched);
   ark_hmac_sha512(master, sizeof master, stretched, sizeof stretched, mac);
   memcpy(key, mac, 32);
