@@ -139,6 +139,54 @@ jobs:
       # exchanges it records are the ones the unit tests replay.
       - run: pnpm test:emulator:record
 
+  signer-localnet:
+    name: "signer: end to end on a local chain"
+    needs: changes
+    if: needs.changes.outputs.signer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: signer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: version
+        run: echo "ref=$(cat ARK_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ararat-network/ark
+          ref: ${{ steps.version.outputs.ref }}
+          path: chain
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # ark's Docker localnet at the tag in ARK_VERSION, one validator. The image build is the cost, a few minutes.
+      - name: Build the image and start one validator
+        working-directory: chain
+        run: VALIDATORS=1 make localnet-start
+      - name: Wait for blocks and a rate
+        working-directory: chain
+        run: make localnet-liveness
+      # The container's user owns the key seed, so it is read through the container rather than from the volume.
+      - name: Read node0's development key
+        run: echo "ARK_LOCALNET_MNEMONIC=$(docker exec ark-node0 cat /data/node0/arkd/key_seed.json | jq -r .secret)" >> "$GITHUB_ENV"
+      # One unordered send, built and priced by the SDK, signed through the signer, broadcast, and found included:
+      # once signed by the keystore's C core, and once by the Ark device app on the emulator.
+      - name: Send a transaction end to end, twice
+        env:
+          ARK_LOCALNET_REST: http://localhost:1317
+        run: pnpm test:localnet
+      - name: Node logs on failure
+        if: failure()
+        working-directory: chain
+        run: docker compose -f contrib/localnet/docker-compose.yml logs --tail 200 node0 pricefeed0
+      - name: Stop the localnet
+        if: always()
+        working-directory: chain
+        run: make localnet-stop
+
   app-lint:
     name: "app: lint and format"
     needs: changes
@@ -266,7 +314,7 @@ jobs:
   ci:
     # The main ruleset requires this check by name.
     name: ci
-    needs: [changes, signer-lint, signer-fixtures, signer-secp256k1, signer-test, signer-ledger, app-lint, app-test, app-ios, app-android]
+    needs: [changes, signer-lint, signer-fixtures, signer-secp256k1, signer-test, signer-ledger, signer-localnet, app-lint, app-test, app-ios, app-android]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

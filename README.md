@@ -8,9 +8,10 @@ the app, and every feature asks it for a signature without ever seeing a key. Th
 [tooling direction](https://github.com/ararat-network/ark/blob/main/docs/direction/TOOLING_DIRECTION.md#ark-app) says
 what the app is for and where it sits among Ark's repositories.
 
-The first package exists: [`signer/`](signer/README.md), with the signup protocol's documents and their proof.
-Nothing else is built yet: each other directory holds a README with the design it follows, and that README is
-rewritten as what is once the package is built.
+The first step of the [build order](#build-order) is built: [`signer/`](signer/README.md), the signer with its
+device keystore and its Ledger adapter, and in [`app/`](app/README.md) the scaffold that builds and links it. The
+keystore has not run on a phone yet, only on the Simulator and an emulator. Each other directory holds a README with
+the design it follows, and that README is rewritten as what is once the package is built.
 
 **The first user.** The
 [disbursement plan](https://github.com/ararat-network/ark/blob/main/docs/governance/DISBURSEMENT_PLAN.md#admission) sets

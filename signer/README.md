@@ -15,6 +15,7 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The device keystore's protection at rest: the seed under the phone's hardware key, and each signature behind the member's authentication | Built, and run on the Simulator and an emulator; [the checks only a phone can make](docs/KEYSTORE_PHONE_CHECKLIST.md) have not been run |
 | The device keystore's seed phrase: drawn for the member by native pieces the app lays out, a few words at a time, and entered word by word, to confirm it, to check it later, and to restore from it, never in JavaScript | Built, and run on the Simulator and an emulator; not on a phone |
 | The Ledger adapter | Built |
+| One transaction end to end on a local chain: built by the SDK, signed through the pipeline, broadcast, and included | Built, signed by the keystore's core on the build machine and by the Ark device app on the emulator; not by a phone |
 | The handoff protocol | Designed |
 
 From [Interface](#interface) on, what is still design is marked as designed, and is rewritten as what is once it is
@@ -44,6 +45,7 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [keystore/ios/SeedPhraseEntry.swift](keystore/ios/SeedPhraseEntry.swift), and its [Kotlin](keystore/android/src/main/java/network/ararat/ark/keystore/SeedPhraseEntry.kt) | A seed phrase being entered, with the native field a word is typed into and the piece that draws one of the words offered for it. It holds what is entered against the key and restores from it, and hands it to nothing. |
 | [keystore/device-check.ts](keystore/device-check.ts) | A check of the keystore that runs on a device, exported as `@ararat-network/signer/keystore/device-check`: it makes a key, signs with it, and removes it, and says what it found on one line each. |
 | [docs/KEYSTORE_PHONE_CHECKLIST.md](docs/KEYSTORE_PHONE_CHECKLIST.md) | What of the keystore only a phone can show, checked by hand, and each run of the list. |
+| [e2e/localnet.e2e.ts](e2e/localnet.e2e.ts) | The end-to-end test: one unordered send on `ark`'s local chain at the tag in [ARK_VERSION](ARK_VERSION), once signed by the keystore's core and once by the Ark device app on the emulator. |
 | [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the seed phrase's words and the reading of them, the derivation, and signing, with the command line in `test/` that the host tests drive. |
 | [keystore/native/secp256k1/](keystore/native/secp256k1/COPYING) | libsecp256k1 at the release and commit in [SECP256K1_VERSION](keystore/native/SECP256K1_VERSION), copied by [scripts/sync-secp256k1.sh](scripts/sync-secp256k1.sh). CI fails when the copy is not that release's, file for file. |
 | [expo-module.config.json](expo-module.config.json) | Where Expo finds the keystore's native projects, so an app that depends on this package links them as it would any module's. |
@@ -645,6 +647,20 @@ another app, an older one, a dropped connection, written from the recorded ones.
 ledger-ark's [hardware checklist](https://github.com/ararat-network/ledger-ark/blob/main/docs/DEVICE_TESTING.md) is
 where a device is checked by hand.
 
+One test runs against a chain. On `ark`'s Docker localnet at the tag in [ARK_VERSION](ARK_VERSION), a CI job sends a
+transaction end to end, twice, each time unordered, as the app sends: the SDK prepares it from the chain's own
+figures, the pipeline reviews and signs it with the chain's fee quote beside the review, the SDK broadcasts it, and
+the test finds it included, the amount with the recipient, the fee charged within the ceiling that was reviewed, and
+the account's sequence where it was. Once it is signed in direct mode by the keystore's core, with a seed the core
+makes, and once in amino by the Ark device app on the emulator, approved on the device's own screen. Before this the
+sign bytes, the signature, and the fee were held to vectors and fixtures; here the chain says whether they are right.
+
+The key the core signs with in that test is not on a phone. The core is the C the phone compiles, built on the build
+machine and driven through the command line the host tests use. What a phone adds, the seed under its hardware key
+and the member's authentication before each signature, is checked on the Simulator and an emulator, where the phone's
+signature over a known seed equals the SDK's byte for byte. No transaction signed on a phone, a simulated one
+included, has been broadcast to a chain: that comes with the app's first screen that sends one.
+
 It leaves the repository when something outside it needs it: a browser extension, a third-party wallet, the wallet kit's
 dapp protocol, or an audit that wants a frozen tag. Until then it is a package, and the app and the signer move in one
 pull request.
@@ -685,6 +701,7 @@ pnpm test
 pnpm fixtures:check   # the decoding fixtures are those of ark at the tag in ARK_VERSION
 pnpm secp256k1:check  # the libsecp256k1 in the tree is the release in keystore/native/SECP256K1_VERSION
 pnpm test:emulator    # the Ledger adapter on the emulator; needs Docker
+pnpm test:localnet    # one transaction end to end; needs Docker and a local chain, below
 ```
 
 `ARK_VERSION` is the `ark` tag the pinned SDK's types are generated from, and moves with the SDK's pin: change both,
@@ -699,6 +716,18 @@ The emulator tests load the device app's binaries from the ledger-ark release na
 [ledger/emulator/binaries.sha256](ledger/emulator/binaries.sha256). To move to a new release, change both. Run with
 `RECORD=1` to write the exchanges the unit tests replay; `pnpm test:emulator:record` does that and fails when the
 recording differs from what is committed, which is what CI runs.
+
+The end-to-end test needs `ark`'s local chain, and is skipped unless `ARK_LOCALNET_REST` is set. In a checkout of
+`ark` at the tag in `ARK_VERSION`, `VALIDATORS=1 make localnet-start` builds the image and starts one validator,
+`make localnet-liveness` waits for blocks, and `make localnet-stop` ends it. Then, from this directory:
+
+```sh
+export ARK_LOCALNET_MNEMONIC="$(docker exec ark-node0 cat /data/node0/arkd/key_seed.json | jq -r .secret)"
+ARK_LOCALNET_REST=http://localhost:1317 pnpm test:localnet
+```
+
+The mnemonic is the validator's development key, which funds the two accounts the test sends from. The test measures
+each account before and after, so it runs again on a chain it has already run on.
 
 The package stands alone: its manifest, lockfile, and tooling configuration are all here, and nothing at the
 repository root is needed to build or test it. The repository's [LICENSE](../LICENSE) covers it.

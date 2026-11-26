@@ -5,7 +5,8 @@ step. The [README](../README.md) is the design; this is the order, what each sta
 open. A stage is one pull request that passes CI on its own and moves a row of the README's status table from Designed
 to Built. A stage's section is removed here once it is built, since the README then says what is: stages 1 to 3, the
 pipeline with the review of a document, the review of a transaction with the SDK's `Signer`, and the Ledger adapter,
-are built.
+are built, and so is stage 5, a transaction end to end on a local chain
+([README](../README.md#ownership-and-tests)). Stage 4 is built too, and its section stays for what it leaves open.
 
 ## Contents
 
@@ -118,6 +119,10 @@ What is left that no pull request closes:
   mirroring starts and when the app is left, and Android leaves them out of screenshots altogether; a screenshot
   taken on an iPhone while they are drawn holds them. Drawn a few at a time, as they are to be at signup, one
   screenshot holds a few words and not the key.
+- **No transaction signed on a phone has reached a chain.** The end-to-end test signs with the keystore's core on
+  the build machine and with the Ark device app on the emulator. The phone's keystore is held to the SDK's signature
+  over a known seed, on the Simulator and an emulator, and its first transaction on a chain comes with the app's
+  first screen that sends one.
 
 Done: wrap and unwrap are tested on both platforms; with a known seed restored the module's signatures equal the
 SDK's byte for byte, on the simulator and the emulator, and the core's are held by the host tests to the signup
@@ -126,17 +131,9 @@ no passcode is tested on the emulator, and on iOS by the checklist, since the Si
 what the simulator and the emulator cannot show, the hardware itself and an enrolment on iOS, is on a checklist that
 is run on a phone.
 
-### 5. End to end on a localnet
+### What is outside the stages
 
-The done-line of the repository's first step: a transaction built and broadcast by a test through the SDK's
-`prepareTx`, `signTx`, and `broadcastTx`, signed from a device key and from a Ledger, each unordered, on the pattern
-of the SDK's localnet smoke workflow.
-
-### Order, and what is outside it
-
-Stage 4, then 5. Stage 4 is the first with native code, and the first that needs the phone app: a scaffold in `app/`
-that builds and runs a native module. The Ledger adapter was built first so that the adapter interface was held
-against a second, stricter implementation before Swift and Kotlin are written to it.
+Every stage is built, and with them the repository's first build step, but for the open items above.
 
 The handoff protocol waits for the web client, as the repository's build order has it. `i18n` is a package of its own:
 its first form, the English strings, the check against `REVIEW_LABELS` and the refusal kinds, and a pseudo-locale, can
