@@ -3,9 +3,10 @@ name: ci
 # One workflow for every package. It always runs, works out which packages a
 # change touches, and runs only those packages' jobs, each from its own
 # directory with its own lockfile. The last job, `ci`, passes when every job
-# that ran passed, and is the one check the main ruleset requires: a package
-# whose jobs were skipped cannot leave a required check waiting, and adding a
-# package never changes the ruleset. It holds no credential and needs none.
+# passed or was skipped for a package the change does not touch, and is the
+# one check the main ruleset requires: a package whose jobs were skipped
+# cannot leave a required check waiting, and adding a package never changes
+# the ruleset. It holds no credential and needs none.
 #
 # To add a package: name it in the `changes` job, add its jobs with the same
 # `if`, and list them in the `ci` job's `needs`.
@@ -255,11 +256,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every job that ran passed
+      # Only the two results named pass. Any other fails, the ones GitHub documents and the ones it does not: a job no
+      # runner ever took is reported here as `abandoned`, and a check that looked for `failure` and `cancelled` passed it.
+      - name: Every job passed or was skipped
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           echo "results: $RESULTS"
-          case " $RESULTS " in
-            *" failure "* | *" cancelled "*) exit 1 ;;
-          esac
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *)
+                echo "::error::a job ended as '$result'"
+                exit 1
+                ;;
+            esac
+          done
