@@ -28,8 +28,8 @@ import {
 } from "@ararat-network/signer/keystore";
 import { checkOnDevice, signsAndVerifies } from "@ararat-network/signer/keystore/device-check";
 import { requireNativeView, requireOptionalNativeModule } from "expo";
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View, type ViewProps } from "react-native";
+import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Text, View, type ViewProps } from "react-native";
 import {
   fill,
   keyStatus,
@@ -45,6 +45,8 @@ import { type StringKey, strings } from "../strings";
 const DEVICE_CHECK = process.env.EXPO_PUBLIC_ARK_DEVICE_CHECK === "1";
 /** How long the device check leaves the seed phrase open, for whoever is reading the screen. */
 const SEED_PHRASE_SHOWN_FOR_CHECK_MS = 6000;
+/** How far under the top of the screen the device check puts the seed phrase's label, clear of the system's bar. */
+const ROOM_ABOVE_SEED_PHRASE = 48;
 /** How many words are drawn at a time when they are drawn a few at a time, as a member writes them down. */
 const WORDS_AT_A_TIME = 4;
 /** How many of the list's words are offered under the field. */
@@ -70,6 +72,9 @@ export default function Scaffold() {
         : null,
     [native],
   );
+  const scroll = useRef<ScrollViewInstance>(null);
+  /** How far down the screen's content the seed phrase's label is, which is where the device check scrolls to. */
+  const seedPhraseTop = useRef(0);
   // Once, when the screen first renders: the check is synchronous and has nothing to wait for.
   const [status] = useState(() => keystoreStatus(checkKeystore(native)));
   const [key, setKey] = useState<DeviceKey | null>(null);
@@ -125,7 +130,12 @@ export default function Scaffold() {
           prompt: keystorePrompt,
           // To the device's log, where the check scripts read the check's lines.
           log: (line) => console.log(line),
-          whileSeedPhraseShown: () => new Promise((resolve) => setTimeout(resolve, SEED_PHRASE_SHOWN_FOR_CHECK_MS)),
+          // Scrolled to first: the check's script reads the words off the screen, and a small screen has them below
+          // its edge, where nothing that reads the screen finds them.
+          whileSeedPhraseShown: () => {
+            scroll.current?.scrollTo({ y: Math.max(0, seedPhraseTop.current - ROOM_ABOVE_SEED_PHRASE), animated: false });
+            return new Promise((resolve) => setTimeout(resolve, SEED_PHRASE_SHOWN_FOR_CHECK_MS));
+          },
         });
         return passed ? "scaffold.result.check_passed" : "scaffold.result.check_failed";
       });
@@ -230,7 +240,7 @@ export default function Scaffold() {
   const rows = shown / columns;
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
+    <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>{strings["scaffold.title"]}</Text>
       <Text style={styles.label}>{strings["scaffold.keystore"]}</Text>
       <Text style={styles.value} testID="keystore-check-result">
@@ -253,7 +263,14 @@ export default function Scaffold() {
       </Text>
       <View style={styles.actions}>{actions.map(([label, action]) => button(label, () => void run(action)))}</View>
 
-      <Text style={styles.label}>{strings["scaffold.seed_phrase"]}</Text>
+      <Text
+        style={styles.label}
+        onLayout={(event) => {
+          seedPhraseTop.current = event.nativeEvent.layout.y;
+        }}
+      >
+        {strings["scaffold.seed_phrase"]}
+      </Text>
       <View style={styles.words}>
         {Array.from({ length: columns }, (_, column) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: the columns are fixed places, read downward

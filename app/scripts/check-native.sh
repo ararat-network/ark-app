@@ -19,7 +19,9 @@
 #
 # On the Simulator the key has no authentication on it, since the Simulator
 # refuses every key that has: what is shown there is the seed made, encrypted
-# under the Simulator's Secure Enclave, opened, and used.
+# under the Simulator's Secure Enclave, opened, and used. The build opens the
+# app itself before this does, so a check already running there is left to
+# end first: stopped while it holds a key, it would leave the key behind.
 #
 # On the emulator the check runs twice. With no screen lock, where the phone
 # must refuse a key and say why; then with a PIN, where the key takes the PIN
@@ -58,14 +60,36 @@ during_wait() { :; }
 
 case "$platform" in
   ios)
-    xcrun simctl terminate booted "$app_id" >/dev/null 2>&1 || true
-    # The launch prints the app's identifier and its process: the lines read are that process's alone, so that
-    # neither an earlier run's nor the log tool's own command line, which holds the same words, is taken for them.
-    pid=$(xcrun simctl launch booted "$app_id" | awk '{print $NF}')
     read_log() {
       # With the lines logged for information, which is how those written from JavaScript arrive.
       xcrun simctl spawn booted log show --last 5m --info --style compact --predicate "processIdentifier == $pid AND eventMessage CONTAINS \"ark-keystore\"" 2>/dev/null
     }
+    # The build opens the app once it has installed it, and the check that starts there holds a key while it runs:
+    # stopped in the middle it leaves that key behind, and the next run, which touches no key it did not make,
+    # refuses. So a run already under way is left to say how it ended before the app is stopped.
+    pid=$(xcrun simctl spawn booted launchctl list 2>/dev/null | awk -v label="UIKitApplication:${app_id}[" 'index($3, label) == 1 && $1 ~ /^[0-9]+$/ { print $1; exit }')
+    if [ -n "$pid" ]; then
+      echo "waiting for the run already under way to end"
+      waited=0
+      ended=0
+      while [ "$waited" -lt 90 ]; do
+        log=$(read_log || true)
+        if printf '%s\n' "$log" | grep -F -q "ark-keystore device-check="; then
+          ended=1
+          break
+        fi
+        waited=$((waited + 2))
+        sleep 2
+      done
+      if [ "$ended" -ne 1 ]; then
+        echo "it did not say how it ended, and is stopped as it is; what it logged:" >&2
+        read_log >&2 || true
+      fi
+    fi
+    xcrun simctl terminate booted "$app_id" >/dev/null 2>&1 || true
+    # The launch prints the app's identifier and its process: the lines read are that process's alone, so that
+    # neither an earlier run's nor the log tool's own command line, which holds the same words, is taken for them.
+    pid=$(xcrun simctl launch booted "$app_id" | awk '{print $NF}')
     await "ark-keystore self-check=1" 60
     await "ark-keystore device-check=ok protection=none hardware=software restored=1 seed-phrase=1 entry=1" 90
     ;;
