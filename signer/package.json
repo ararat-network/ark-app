@@ -25,6 +25,7 @@
     "test": "node --import tsx --test 'src/**/*.test.ts' 'ledger/*.test.ts' 'keystore/*.test.ts'",
     "test:emulator": "./scripts/fetch-ledger-binaries.sh && node --import tsx --test --test-concurrency=1 'ledger/emulator/*.emu.ts'",
     "test:emulator:record": "RECORD=1 pnpm test:emulator && ./scripts/check-clean.sh testdata/ledger",
+    "test:localnet": "./scripts/fetch-ledger-binaries.sh && node --import tsx --test --test-concurrency=1 'e2e/*.e2e.ts'",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write ."

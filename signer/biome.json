@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["*.json", "src/**", "ledger/**", "keystore/**/*.ts", "keystore/**/*.json", "!pnpm-lock.yaml"]
+    "includes": ["*.json", "src/**", "ledger/**", "keystore/**/*.ts", "keystore/**/*.json", "e2e/**", "!pnpm-lock.yaml"]
   },
   "formatter": {
     "enabled": true,
@@ -27,7 +27,7 @@
   },
   "overrides": [
     {
-      "includes": ["**/*.test.ts", "**/*.emu.ts", "src/testing/**", "ledger/testing/**"],
+      "includes": ["**/*.test.ts", "**/*.emu.ts", "**/*.e2e.ts", "src/testing/**", "ledger/testing/**"],
       "linter": {
         "rules": {
           "style": {

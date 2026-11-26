@@ -6,39 +6,23 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { before, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { fromBase64, isValidMnemonic, privateKeyFromMnemonic, publicKeyFromPrivate, signMessage, toHex, utf8Encode } from "@ararat-network/sdk";
 import { fixtureKey, txFixtures } from "../src/testing/fixtures.ts";
 import { signupVectors } from "../src/testing/vectors.ts";
 import { DEVICE_CHECK_SEED_PHRASE } from "./device-check.ts";
+import { coreCli, coreSource, runCore } from "./testing/core_cli.ts";
 
-const native = fileURLToPath(new URL("native/", import.meta.url));
+const native = coreSource;
 let cli = "";
 
 before(() => {
-  const out = mkdtempSync(join(tmpdir(), "ark-keystore-core-"));
-  cli = join(out, "cli");
-  const cc = process.env.CC ?? "cc";
-  const flags = ["-std=c99", "-O2", "-D_DEFAULT_SOURCE"];
-  const objects: string[] = [];
-  const compile = (source: string, extra: string[]): void => {
-    const object = join(out, `${source.replace(/[^a-z0-9_]/gi, "_")}.o`);
-    execFileSync(cc, [...flags, ...extra, "-c", join(native, source), "-o", object], { stdio: "inherit" });
-    objects.push(object);
-  };
-  // Ours with every warning an error; the library as its authors build it, with its own warnings its own.
-  for (const source of ["ark_sha2.c", "ark_keystore.c", "ark_self_check.c", "test/cli.c"]) compile(source, ["-Wall", "-Wextra", "-Werror"]);
-  for (const source of ["secp256k1/src/secp256k1.c", "secp256k1/src/precomputed_ecmult.c", "secp256k1/src/precomputed_ecmult_gen.c"]) {
-    compile(source, ["-w", `-I${join(native, "secp256k1/include")}`, `-I${join(native, "secp256k1/src")}`]);
-  }
-  execFileSync(cc, [...objects, "-o", cli], { stdio: "inherit" });
+  cli = coreCli();
 });
 
-const run = (...args: string[]): string => execFileSync(cli, args, { encoding: "utf8" }).trim();
+const run = runCore;
 const hex = (bytes: Uint8Array): string => toHex(bytes);
 
 test("SHA-256 and SHA-512 are Node's, at every length around a block's edge", () => {
