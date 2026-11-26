@@ -148,6 +148,16 @@ test("the self-check the device runs passes here, and its answers are the SDK's"
   assert.equal(bytesOf("SIGNATURE"), hex(signMessage(utf8Encode("ark-keystore self-check"), key)));
 });
 
+test("a new seed is 32 bytes no other call gave, with the public key the SDK derives from its words", () => {
+  const made = Array.from({ length: 8 }, () => run("generate").split(" "));
+  for (const [seed, publicKey] of made) {
+    assert.match(seed ?? "", /^[0-9a-f]{64}$/);
+    assert.equal(publicKey, hex(publicKeyFromPrivate(privateKeyFromMnemonic(run("mnemonic", seed ?? "")))), `the public key of ${seed}`);
+  }
+  assert.equal(new Set(made.map(([seed]) => seed)).size, made.length, "no seed is given twice");
+  assert.ok(!made.some(([seed]) => seed === "00".repeat(32)), "the source's bytes are in the seed");
+});
+
 test("a seed that is not 32 bytes is not taken", () => {
   assert.throws(() => execFileSync(cli, ["key", "00".repeat(31)], { stdio: "pipe" }));
   assert.throws(() => execFileSync(cli, ["public", "00".repeat(33)], { stdio: "pipe" }));

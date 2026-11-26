@@ -15,10 +15,13 @@ is rewritten as what is once it is built.
 | Everything a member does | Designed |
 
 The scaffold is the app with nothing in it yet. It has one screen, which asks the signer's
-[keystore](../signer/README.md#the-keystores-core) to check its core and says what it found, and it exists to show
-that the pieces every later step needs are in place: the native projects generated from [app.json](app.json), the
-signer taken by path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both
-platforms and checks the keystore answered there. It holds no key.
+[keystore](../signer/README.md#protection-at-rest) to check its core, shows the key the phone holds, and has a button
+for each thing the keystore does: make a key, sign a test message, remove the key. It exists to show that the pieces
+every later step needs are in place: the native projects generated from [app.json](app.json), the signer taken by
+path as a sibling package, its Swift, Kotlin, and C built into the app, and CI that builds both platforms and runs
+the keystore there. It is also how the keystore is
+[tried by hand on a phone](../signer/docs/KEYSTORE_PHONE_CHECKLIST.md). A key made from it is for trying the keystore
+and is no member's: nothing registers it.
 
 ## Layout
 
@@ -27,9 +30,9 @@ platforms and checks the keystore answered there. It holds no key.
 | [app.json](app.json) | The app's config, which the native projects are generated from. `ios/` and `android/` are never committed. |
 | [src/app/](src/app/index.tsx) | The routes, in the `src` form Expo Router accepts. Today, the scaffold's one screen. |
 | [src/strings.ts](src/strings.ts) | The strings the app shows, as resources and never as text in a component, until the `i18n` package holds them. |
-| [src/keystore-status.ts](src/keystore-status.ts) | The string for what the keystore's check found, apart from the screen so that it is tested with no device. |
+| [src/keystore-status.ts](src/keystore-status.ts) | The strings for what the keystore says, its check, the key it holds, its prompt, and why a call was refused, apart from the screen so that they are tested with no device. |
 | [metro.config.js](metro.config.js) | The bundler told to watch the signer's directory, since the app takes it by path and not from a registry. |
-| [scripts/check-native.sh](scripts/check-native.sh) | Starts an installed build and waits for the line the keystore writes to the device's log when its check passes. |
+| [scripts/check-native.sh](scripts/check-native.sh) | Starts an installed build and waits for the lines in the device's log that say the keystore's core answered rightly and its device check passed. On the emulator it sets a PIN and types it into the system's prompt. |
 
 ## First-tranche scope
 
@@ -200,7 +203,7 @@ pnpm install
 pnpm lint
 pnpm check
 pnpm test
-pnpm check:ios        # builds, installs on the booted simulator, and checks the keystore answered there
+pnpm check:ios        # builds, installs on the booted simulator, and runs the keystore's device check there
 pnpm check:android    # the same on the running emulator
 ```
 
@@ -213,7 +216,14 @@ The native projects are generated at build time from [app.json](app.json) and th
 `android/`, which are ignored. What is built is fixed by that config and that pin, so a change to either is what a
 review reads; `pnpm prebuild` generates them afresh.
 
-Four things about the build that are not obvious:
+The two checks build the app with `EXPO_PUBLIC_ARK_DEVICE_CHECK=1`, and only such a build runs the keystore's
+[device check](../signer/keystore/device-check.ts) when it opens: it makes a key, signs twice, and removes the key,
+and stops before doing anything where a key is already held. On the emulator the check sets a PIN of its own, types
+it into the system's prompt, and clears it when it ends, so it is run on an emulator with no screen lock that
+matters. The Android check also builds with the Gradle property `arkKeystoreAllowSoftware`, without which the
+keystore refuses an emulator's key store, which has no hardware behind it.
+
+Five things about the build that are not obvious:
 
 - The app's identifier on both platforms is `network.ararat.ark`, in [app.json](app.json). It is a working choice:
   nothing has been published under it, and a store fixes an identifier for good at the first upload, so it is
@@ -224,6 +234,8 @@ Four things about the build that are not obvious:
 - The Android build asks any `cmake` on the `PATH` for its version before it uses the Android SDK's own, so a
   `cmake` there that fails to run stops the build. The keystore names the CMake it builds with, and the build
   fetches that one from the SDK.
+- CocoaPods needs a UTF-8 locale. In a shell with none, its install fails with an encoding error that names no
+  cause; `LANG=en_US.UTF-8` in front of the command is the fix.
 - The native code the app builds is the signer's, not its own. The app depends on `@ararat-network/signer` by path,
   and Expo links the keystore's native projects from that package as it would any module's
   ([expo-module.config.json](../signer/expo-module.config.json)).

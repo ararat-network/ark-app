@@ -7,7 +7,10 @@
     "orientation": "portrait",
     "ios": {
       "bundleIdentifier": "network.ararat.ark",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Ark uses Face ID to confirm it is you before it signs with your key."
+      }
     },
     "android": {
       "package": "network.ararat.ark"

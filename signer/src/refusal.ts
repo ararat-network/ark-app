@@ -14,6 +14,8 @@ export const REFUSAL_KINDS = [
   "authentication_failed",
   /** The device refuses further attempts for now. */
   "locked_out",
+  /** The phone no longer opens its key, a fingerprint or face enrolled or the passcode removed, and the member restores from backup. */
+  "key_invalidated",
   /** The Ledger that holds the account is not connected, or the connection dropped. */
   "device_unavailable",
   /** The Ledger is locked, and the member unlocks it. */

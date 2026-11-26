@@ -12,7 +12,8 @@ the transaction with the SDK, chooses the fee, and broadcasts what the signer re
 | The pipeline: consent, permissions, and the review of a document | Built |
 | The review of a transaction, and the SDK's `Signer` | Built |
 | The device keystore's core: the seed to the key and the key to a signature, in C, linked into the phone app | Built |
-| The device keystore's storage, authentication, and backup and recovery | Designed |
+| The device keystore's protection at rest: the seed under the phone's hardware key, and each signature behind the member's authentication | Built, and run on the Simulator and an emulator; [the checks only a phone can make](docs/KEYSTORE_PHONE_CHECKLIST.md) have not been run |
+| The device keystore's backup and recovery | Designed |
 | The Ledger adapter | Built |
 | The handoff protocol | Designed |
 
@@ -38,7 +39,9 @@ built. The [build plan](docs/BUILD_PLAN.md) has the order, what each stage deliv
 | [ledger/](ledger/adapter.ts) | The Ledger adapter, exported as `@ararat-network/signer/ledger`: pairing a Ledger, and the key adapter for the account it was paired as. |
 | [ledger/emulator/](ledger/emulator/ledger.emu.ts) | The adapter's tests against the Ark device app on the emulator, with the ledger-ark release and the SHA-256 of each binary they load. |
 | [testdata/ledger/exchanges.json](testdata/ledger/exchanges.json) | Every command and answer of an emulator run, recorded. The adapter's unit tests replay them, and CI fails when a fresh run records anything else. |
-| [keystore/](keystore/index.ts) | The device keystore, exported as `@ararat-network/signer/keystore`: its TypeScript face, Swift in `ios/`, and Kotlin with its JNI entry in `android/`. Today it is the core and a check of it. |
+| [keystore/](keystore/index.ts) | The device keystore, exported as `@ararat-network/signer/keystore`: the key the phone holds and the key adapter over it ([keystore.ts](keystore/keystore.ts)), the native module's calls and the words it answers in ([native.ts](keystore/native.ts)), Swift in `ios/`, and Kotlin with its JNI entries in `android/`. |
+| [keystore/device-check.ts](keystore/device-check.ts) | A check of the keystore that runs on a device, exported as `@ararat-network/signer/keystore/device-check`: it makes a key, signs with it, and removes it, and says what it found on one line each. |
+| [docs/KEYSTORE_PHONE_CHECKLIST.md](docs/KEYSTORE_PHONE_CHECKLIST.md) | What of the keystore only a phone can show, checked by hand, and each run of the list. |
 | [keystore/native/](keystore/native/ark_keystore.h) | The keystore's C core, which both platforms compile: the hashes, the 24 words, the derivation, and signing, with the command line in `test/` that the host tests drive. |
 | [keystore/native/secp256k1/](keystore/native/secp256k1/COPYING) | libsecp256k1 at the release and commit in [SECP256K1_VERSION](keystore/native/SECP256K1_VERSION), copied by [scripts/sync-secp256k1.sh](scripts/sync-secp256k1.sh). CI fails when the copy is not that release's, file for file. |
 | [expo-module.config.json](expo-module.config.json) | Where Expo finds the keystore's native projects, so an app that depends on this package links them as it would any module's. |
@@ -187,11 +190,12 @@ account's key, before it is handed back with the signer's own copy of the docume
 
 Whatever stops a signature is a `SignerRefusal` with a kind. A kind exists only where the app does something
 different for it: `declined`, `not_granted`, `expired`, and, from the adapters, `authentication_failed`, `locked_out`,
-`device_unavailable`, `device_locked`, `wrong_app`, `app_outdated`, and `rejected_on_device`. Everything that means a
-bug or an attack is `invalid`: bytes that are no document, a document for another network, a transaction review
-cannot show whole, an account the signer does not hold, a key that returned a bad signature. An adapter's own refusal
-passes through the pipeline, and anything else an adapter throws becomes `invalid` with the cause kept. A refusal's
-message is an English diagnostic for a log; what a member reads is a string the app chooses by kind.
+`key_invalidated`, `device_unavailable`, `device_locked`, `wrong_app`, `app_outdated`, and `rejected_on_device`.
+Everything that means a bug or an attack is `invalid`: bytes that are no document, a document for another network, a
+transaction review cannot show whole, an account the signer does not hold, a key that returned a bad signature. An
+adapter's own refusal passes through the pipeline, and anything else an adapter throws becomes `invalid` with the
+cause kept. A refusal's message is an English diagnostic for a log; what a member reads is a string the app chooses
+by kind.
 
 ## The sign-arbitrary call
 
@@ -217,7 +221,7 @@ its accounts, a signature over the sign bytes it is given, and, where the key ma
 sign now. The core builds the sign bytes and checks every signature an adapter returns, so no adapter decides what
 is signed, and the features never know which one signed. An adapter that cannot list its accounts stops no other
 from signing: the core passes it over, and its refusal is the reason given for an account no other adapter holds.
-The Ledger adapter is built; the keystore is not, and the core's tests use a key in memory.
+Both are built, and the core's own tests use a key in memory.
 
 The package is a TypeScript core with one subpath export per adapter, so a client imports what it has: the phone the
 keystore and the Ledger adapter, the web the handoff and the Ledger adapter, and never the keystore, so nothing
@@ -299,8 +303,9 @@ wraps it.
   when the passcode is removed. The member then restores from backup.
 - **An uninstall.** On Android it removes the file and the key. On iOS Apple documents nothing of what an uninstall
   does to the Keychain: an item has outlasted one in practice, and Apple's engineers call that a detail that may
-  change. The keystore relies on neither outcome. At first launch, an item it finds that the hardware key still
-  opens is the member's key, and anything else is no key.
+  change. The keystore relies on neither outcome. What it finds at launch is what it reports: an encrypted seed whose
+  hardware key is there is the member's key, one whose hardware key is gone is a key the phone no longer opens, and
+  the member restores from backup.
 - **In use.** Unwrapped only for a signing call, in the native module, which hashes, signs with libsecp256k1 (RFC 6979,
   low-S), zeroises the seed and the key, and returns the signature. The raw key is handled in C alone, beside
   libsecp256k1: Swift and Kotlin pass bytes through, since neither can be relied on to zeroise memory. JavaScript
@@ -316,8 +321,8 @@ be exported, so it has no backup: with registration permanent, it would need a w
 a new key, and there is none. The design keeps the software key, as wallets on this curve do. A member who wants the
 key off the phone uses a Ledger.
 
-Of this, the core is built and the rest is designed: [the core](#the-keystores-core) is what is, and storage,
-authentication, and backup are built on it next.
+Of this, everything but backup is built: [the core](#the-keystores-core) and [protection at rest](#protection-at-rest)
+are what is, and backup is built on them next.
 
 ### The keystore's core
 
@@ -331,9 +336,11 @@ and never a key, and what held either is zeroised before a call returns.
   its three sources with no build system of its own, and its signatures are RFC 6979's with a low S.
 - **The hashes are written here**, SHA-256, SHA-512, HMAC, and PBKDF2, from their standards. A hash that took the
   seed through Swift or Kotlin would leave copies of it where they cannot be zeroised.
-- **A check runs on the device.** The module's one call today, `selfCheck`, derives a key from a seed fixed in the C
-  and signs with it, and compares both with answers fixed beside it, which the SDK's TypeScript made. It shows that
-  a build of the core, on that processor, gives what the same seed gives everywhere.
+- **A new seed is the operating system's randomness**, asked for in the C: Apple's own call for key material on
+  iOS, and `getentropy`, the kernel asked directly, on Android.
+- **A check runs on the device.** `selfCheck` derives a key from a seed fixed in the C and signs with it, and
+  compares both with answers fixed beside it, which the SDK's TypeScript made. It shows that a build of the core, on
+  that processor, gives what the same seed gives everywhere.
 - **No call takes or returns a seed or a key.** The module's TypeScript ([keystore/index.ts](keystore/index.ts))
   imports nothing of Expo's: the app looks the native module up and hands it in.
 
@@ -341,6 +348,73 @@ The host tests build the core with the machine's C compiler and hold it against 
 its hashes against Node's at every length around a block's edge, its words against BIP-39's own vectors, its keys and
 signatures against the SDK's for random seeds, and its signatures against the signup vectors and every one of the 85
 transaction fixtures, byte for byte.
+
+### Protection at rest
+
+The seed is made in the C, encrypted under a key the phone's hardware holds, and opened for one signature at a time
+after the member authenticates. [keystore.ts](keystore/keystore.ts) is its TypeScript: `deviceKeystore` takes the
+native module and the prompt's text, and gives what the phone can hold, the key it holds, the making and removing of
+it, and the key adapter the pipeline signs through.
+
+- **The answer comes before the key.** `availability` says which protection a key made now would have, or why the
+  phone can be given none: no passcode, no hardware-backed key store, or, on Android 9 and 10, no fingerprint or
+  face of the strong class. It makes nothing, so the app can explain before it offers.
+- **One key, never overwritten.** `create` refuses while a key is held. `remove` destroys the hardware key and the
+  encrypted seed, and is the only call that does.
+- **iOS.** The seed is encrypted to a P-256 key in the Secure Enclave with the Enclave's own hybrid scheme, and the
+  ciphertext is a Keychain item kept on this device alone. The Enclave's key takes a fingerprint or face of those
+  enrolled now, or the passcode with either in its place, and is an item of the class the system deletes when the
+  passcode is removed. Encrypting needs no authentication, so making a key shows no prompt. Each signature decrypts
+  in an authentication context of its own, made for that call and invalidated after it
+  ([SeedStore.swift](keystore/ios/SeedStore.swift)).
+- **Android.** The seed is encrypted with AES-256-GCM under a key in the Android Keystore, in StrongBox where the
+  phone has it, and the ciphertext is a file in the app's no-backup directory. The key needs authentication for
+  every use, to encrypt as to decrypt, so making a key asks the member once, and each signature asks again, through
+  the system's prompt bound to that one cipher operation
+  ([SeedStore.kt](keystore/android/src/main/java/network/ararat/ark/keystore/SeedStore.kt)).
+- **Beside the encrypted seed** are the public key, the protection, and where the hardware key is held, none of them
+  a secret, so the phone's account and what protects it are read with no prompt. A public key changed there signs
+  nothing: the pipeline checks every signature against the account it was asked for.
+- **A key the phone no longer opens is still the member's account.** Where the hardware key is gone or the platform
+  says it is invalidated, the key is reported as invalidated and listed all the same. Asked to sign, it refuses as
+  `key_invalidated` before the member is shown a review, which is what the app answers with a restore. Android says
+  so without a prompt. On iOS a removed passcode is known that way, and an enrolment is known only when the Enclave
+  refuses the key.
+- **The seed in the app's memory.** It is made and used in the C, and wiped there. Between the C and the hardware it
+  is bytes in Swift or Kotlin for the length of one call, because that is the form each system's own encryption
+  takes and gives: Swift hands the system buffers it does not copy and wipes them, and Kotlin zeroes the array it is
+  given. What the system's libraries copy inside themselves is theirs. The key derived from the seed never leaves
+  the C.
+- **What stops a call is a kind.** A native failure carries a code, and the TypeScript reads it as a `KeystoreError`:
+  the three reasons a phone can have no key, `exists`, `no_key`, `authentication_failed`, `locked_out`,
+  `key_invalidated`, and `failed` for a fault. The adapter turns the three the app acts on into the signer's
+  refusals of the same names, and every other into `invalid`.
+- **What native code answers is checked.** A public key that is no point, a protection or hardware the TypeScript
+  does not know, a signature of the wrong length: each is a fault, whichever build produced it.
+- **The prompt's text is the app's.** A title, a reason, and a cancel button, asked for each time a prompt is shown,
+  so they are string resources in the language the app is in then. iOS also shows the app's own line the first time
+  Face ID is used, which is in the app's configuration and is English until `i18n` holds it.
+
+**Keys for development.** Neither the Simulator nor an emulator has the hardware, and each is given a key only by a
+build made to run there. A build for the Simulator, and no build for a phone, makes a key with no authentication on
+it, since the Simulator refuses every key that has any. On Android a key store with no hardware behind it is refused
+unless the build was made with the Gradle property `arkKeystoreAllowSoftware`, which the emulator check sets. Both
+report their hardware as `software`, so the app can say that a key is a development key and no member's.
+
+**What has been run, and what has not.** The TypeScript is tested over a native module in memory. On the Simulator
+and an emulator, in CI, the app makes a key through the real module, signs twice with it, checks each signature
+against the key's public key, is refused a second key, and removes it: on the Simulator under its stand-in for the
+Secure Enclave with no authentication, and on the emulator behind a PIN typed into the system's prompt for the key
+and for each signature, after a first run with no screen lock that must be refused.
+
+Tried by hand on the Android 17 emulator, once, and in no CI job: with a fingerprint enrolled the key made takes the
+fingerprint alone and signs with it; a second fingerprint enrolled, the app reports the key as one the phone no
+longer opens and refuses to sign with no prompt shown; and a prompt cancelled while a key is being made leaves no
+key.
+
+Nothing has run on a phone. That the hardware key is in hardware, authentication on iOS at all, a real fingerprint
+or face, invalidation on iOS and what it is reported as, and Android 9 and 10 are on
+[a list checked by hand](docs/KEYSTORE_PHONE_CHECKLIST.md), which has not been run.
 
 ### What the platforms document
 
@@ -356,7 +430,7 @@ that says nothing is documented means that: the behaviour is found by trying it,
 | No passcode | "No items can be stored in this class on devices without a passcode. Disabling the device passcode causes all items in this class to be deleted" ([accessibility](https://developer.apple.com/documentation/security/ksecattraccessiblewhenpasscodesetthisdeviceonly)). | "The key can only be generated if secure lock screen is set up", and it is invalidated for good when the lock screen is disabled ([KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)). |
 | An uninstall | Nothing is documented. | The app's internal storage is deleted ([security practices](https://developer.android.com/privacy-and-security/security-best-practices)), and its keys are cleared ([Keystore, in the platform's own docs](https://source.android.com/docs/security/features/keystore)). |
 | A backup, or a move to a new phone | Items of this class are not backed up and do not sync ([Keychain data protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)). | App files are copied unless they are in the no-backup directory ([Auto Backup](https://developer.android.com/identity/data/autobackup)); keys are not. |
-| The simulator and the emulator, tried, since nothing is documented | On the iOS 27.2 Simulator the Secure Enclave is present: a key with no authentication on it is made, and encrypts and decrypts. A key that needs biometrics, or biometrics or the passcode, is refused with -25293, with a face enrolled or not. | On the Android 17 emulator the Keystore is software: a key is made and encrypts and decrypts, at security level 0, and there is no StrongBox. With a PIN set, a key that takes biometrics or the PIN for each use is made; one that takes biometrics alone needs one enrolled. With no PIN, both are refused with `InvalidAlgorithmParameterException`. |
+| The simulator and the emulator, tried, since nothing is documented | On the iOS 27.2 Simulator the Secure Enclave is present: a key with no authentication on it is made, and encrypts and decrypts. A key that needs biometrics, or biometrics or the passcode, is refused with -25293, with a face enrolled or not. | On the Android 17 emulator the Keystore is software: a key is made and encrypts and decrypts, at security level 0, and there is no StrongBox. With a PIN set, a key that takes biometrics or the PIN for each use is made, and the system's prompt takes the PIN typed over `adb`. With a fingerprint enrolled through the emulator's sensor, a key that takes biometrics alone is made and used, and enrolling a second invalidates it. With no PIN, both are refused with `InvalidAlgorithmParameterException`. |
 
 **Web.** No software key in the first version: a browser cannot zeroise memory or attest itself, and a web origin is
 the phishing surface. The web client builds and reviews the transaction, then signs by handoff or a Ledger.
@@ -431,8 +505,9 @@ clock, so it cannot say whether that time has passed or how far off it is.
 ## Ownership and tests
 
 The package, its native module included, has its own CODEOWNERS and its own tests: the signup protocol's vectors,
-byte-equal sign bytes and signatures; the decoding fixtures, for review; the keystore's wrap, unwrap, and zeroisation
-on both platforms; the Ledger adapter against the Ark device app on the emulator; and the handoff round trip. It
+byte-equal sign bytes and signatures; the decoding fixtures, for review; the keystore's core on the build machine and
+the whole of it on the Simulator and an emulator ([protection at rest](#protection-at-rest)); the Ledger adapter
+against the Ark device app on the emulator; and the handoff round trip. It
 changes slowly and on its owners' review.
 
 The Ledger adapter is tested twice. On the emulator, a CI job loads the device app's binaries from a ledger-ark
@@ -462,10 +537,13 @@ sign bytes as. None of Ledger's own packages is a dependency: the client that co
 it. Three packages in that tree are overridden to the releases that fix advisories against them
 ([pnpm-workspace.yaml](pnpm-workspace.yaml)), and none of it reaches a client.
 
-The keystore adds no package. Its one dependency is libsecp256k1, at v0.8.0, kept in the tree as source and built
-by each platform's own build with the keystore's C; the release and its commit are pinned, and CI checks the copy
-against them. Expo and React Native are not dependencies: the keystore's TypeScript imports neither, and the app
-that links its native module brings them.
+The keystore adds no package to the manifest. Its C depends on libsecp256k1, at v0.8.0, kept in the tree as source
+and built by each platform's own build with the keystore's C; the release and its commit are pinned, and CI checks
+the copy against them. Its Android side depends on `androidx.biometric` at 1.1.0, Google's library for the system's
+fingerprint, face, and screen-lock prompt, named in the module's
+[Gradle file](keystore/android/build.gradle) and fetched by the app's build; its iOS side uses the system's own
+frameworks and nothing else. Expo and React Native are not dependencies: the keystore's TypeScript imports neither,
+and the app that links its native module brings them.
 
 A bump to any of these is reviewed by the signer's owners.
 
@@ -487,8 +565,8 @@ pnpm test:emulator    # the Ledger adapter on the emulator; needs Docker
 then `pnpm fixtures:sync`.
 
 `pnpm test` builds the keystore's C core with the machine's C compiler, `cc` unless `CC` names another, so it needs
-one. The keystore's Swift and Kotlin are built by the phone app's build and checked there
-([app](../app/README.md#development)).
+one. The keystore's Swift and Kotlin are built by the phone app's build, and its device check is run there, on the
+Simulator and an emulator ([app](../app/README.md#development)).
 
 The emulator tests load the device app's binaries from the ledger-ark release named in
 [ledger/emulator/RELEASE](ledger/emulator/RELEASE), and refuse one whose SHA-256 is not the one in

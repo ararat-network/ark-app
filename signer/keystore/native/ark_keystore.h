@@ -24,12 +24,21 @@ extern "C" {
 // Each returns 1 when it has done what it says and 0 when it has not, in
 // which case what it was to write is zeroed.
 
+// A new seed, 256 bits from the operating system's random source, and the
+// compressed public key of its key. The caller owns the seed from here: it
+// encrypts it and wipes it.
+int ark_keystore_generate(uint8_t seed[ARK_SEED_LENGTH], uint8_t public_key[ARK_PUBLIC_KEY_LENGTH]);
+
 // The compressed public key of the seed's key.
 int ark_keystore_public_key(const uint8_t seed[ARK_SEED_LENGTH], uint8_t public_key[ARK_PUBLIC_KEY_LENGTH]);
 
 // A signature by the seed's key over SHA-256 of the message: r then s, with s
 // in the lower half of the curve order, and deterministic (RFC 6979).
 int ark_keystore_sign(const uint8_t seed[ARK_SEED_LENGTH], const uint8_t *message, size_t length, uint8_t signature[ARK_SIGNATURE_LENGTH]);
+
+// Zeroes what held a seed, in a way a compiler does not remove. Swift and
+// Kotlin call it on the one buffer each of them hands a seed through.
+void ark_keystore_wipe(void *bytes, size_t length);
 
 // Derives a key from a seed fixed here and signs with it, and compares both
 // with the answers fixed here: 1 when this build of the core, on this device,

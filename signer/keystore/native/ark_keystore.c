@@ -3,6 +3,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+// The operating system's random source. Apple's is its own call, the one it documents for keys; elsewhere it is
+// getentropy, the kernel asked directly, which bionic has from Android 9 and glibc has.
+#if defined(__APPLE__)
+#include <CommonCrypto/CommonRandom.h>
+static int system_random(uint8_t *bytes, size_t length) { return CCRandomGenerateBytes(bytes, length) == kCCSuccess; }
+#else
+#include <sys/types.h>
+#include <sys/random.h>
+static int system_random(uint8_t *bytes, size_t length) { return getentropy(bytes, length) == 0; }
+#endif
+
 #include "ark_bip39_english.h"
 #include "ark_keystore_internal.h"
 #include "ark_sha2.h"
@@ -144,6 +155,18 @@ int ark_sign_with_key(const uint8_t private_key[ARK_PRIVATE_KEY_LENGTH], const u
   if (!ok) memset(signature, 0, 64);
   return ok;
 }
+
+int ark_keystore_generate(uint8_t seed[ARK_SEED_LENGTH], uint8_t public_key[ARK_PUBLIC_KEY_LENGTH]) {
+  // A seed whose key BIP-32 calls invalid is as likely as guessing a key, and is refused all the same.
+  int ok = system_random(seed, ARK_SEED_LENGTH) && ark_keystore_public_key(seed, public_key);
+  if (!ok) {
+    ark_zeroise(seed, ARK_SEED_LENGTH);
+    memset(public_key, 0, ARK_PUBLIC_KEY_LENGTH);
+  }
+  return ok;
+}
+
+void ark_keystore_wipe(void *bytes, size_t length) { ark_zeroise(bytes, length); }
 
 int ark_keystore_public_key(const uint8_t seed[ARK_SEED_LENGTH], uint8_t public_key[ARK_PUBLIC_KEY_LENGTH]) {
   uint8_t key[ARK_PRIVATE_KEY_LENGTH];
