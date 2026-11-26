@@ -11,6 +11,12 @@ android {
   defaultConfig {
     versionCode 1
     versionName "0.0.0"
+    // Whether a key store with no hardware behind it is taken: an emulator's. A build says so with the Gradle
+    // property, as the checks that run on an emulator do, and no other build takes one.
+    buildConfigField "boolean", "ALLOW_SOFTWARE_KEYSTORE", (findProperty("arkKeystoreAllowSoftware") ?: "false").toString()
+  }
+  buildFeatures {
+    buildConfig true
   }
   // The C core in ../native, built with the NDK the app's own build names, so every native library in the app
   // shares one C runtime.
@@ -28,4 +34,9 @@ android {
   lintOptions {
     abortOnError false
   }
+}
+
+dependencies {
+  // The system's fingerprint, face, and screen-lock prompt, over every Android the app runs on.
+  implementation "androidx.biometric:biometric:1.1.0"
 }

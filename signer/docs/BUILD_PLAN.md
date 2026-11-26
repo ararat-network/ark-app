@@ -77,55 +77,42 @@ English diagnostic a member never reads; what a member reads is a string resourc
 ### 4. The device keystore, with backup A
 
 `keystore/`, exported as `@ararat-network/signer/keystore`: a TypeScript entry over Swift and Kotlin, over a C core.
-It is built in four pull requests, of which the first two are done:
+It is built in four pull requests, of which the first three are done:
 
 1. The platforms' documentation read against the design
    ([what the platforms document](../README.md#what-the-platforms-document)).
 2. The core and the module ([the keystore's core](../README.md#the-keystores-core)): the seed to the key and the key
    to a signature in C, libsecp256k1 from pinned source, and the module linked into the phone app from this package,
    where a check of the core runs on the simulator and the emulator in CI.
-3. Protection at rest: the hardware key, authentication for each signature, the two kinds of key, and the refusals.
+3. Protection at rest ([README](../README.md#protection-at-rest)): the seed made in native code and encrypted under
+   the hardware key, authentication for each signature, the two kinds of key, the refusals, and the key adapter the
+   pipeline signs through, checked on the simulator and the emulator in CI.
 4. Backup A.
 
-What is left, in 3 and 4:
+What is left, in 4:
 
-- Generation of the seed from the OS random source, in native code.
-- One layer of encryption at rest: the seed under the hardware key directly, an AES key in the Android Keystore and
-  the Secure Enclave's own hybrid scheme on iOS. A second layer is added only if a reason for one is found.
-- The encrypted seed in a Keychain item on iOS and in the app's no-backup directory on Android. An uninstall removes
-  it on Android; on iOS nothing is documented, so the keystore relies on neither outcome.
-- The member authenticates for each signature, with no window in which the key stays usable. On iOS each decryption
-  makes its own authentication context, since one kept and already authenticated would sign with no prompt.
-- Two kinds of key, chosen when the key is made, since no platform gives both a passcode fallback and a key that
-  enrolment invalidates. Where the phone has strong biometrics enrolled, the key takes biometrics alone and a newly
-  enrolled fingerprint or face invalidates it. Where it has not, the key takes the passcode and outlasts an
-  enrolment. The module reports which it made, so the app can tell the member.
-- Android from 9, the floor the app's config sets. The passcode kind of key is made from Android 11, the first that
-  lets a key used once per authentication take the passcode; on Android 9 and 10 a phone with no strong biometrics
-  is refused a key.
-- A phone with no passcode, or no hardware-backed key store, refused a key, with a refusal the app can explain. Both
-  platforms destroy the key when the passcode is removed, and the member restores from backup.
-- The biometric prompt's text passed in from JavaScript, so it is a string resource like any other.
-- Backup option A in the same module. Its restore is also how a test loads a known key, so a release build holds no
-  import made for tests. Backup B, the mnemonic, is built with the staking flow that offers it.
+- Backup option A in the same module: the seed encrypted under a key derived by Argon2id from a recovery secret the
+  member chooses, kept in the platform account's keychain. Its restore is also how a test loads a known key, so a
+  release build holds no import made for tests, and with a fixture's seed restored the module's signatures are held
+  to the core's byte for byte. Backup B, the mnemonic, is built with the staking flow that offers it.
 
-What the simulator and the emulator can show was found by trying them, since neither platform documents it, and it
-decides how the third pull request is tested:
+What is left that no pull request closes:
 
-- **The Simulator has a Secure Enclave, and refuses a key with authentication on it.** A plain key is made and
-  encrypts and decrypts there. One that needs biometrics, or biometrics or the passcode, is refused, with a face
-  enrolled or not. So encryption under the Secure Enclave is tested in CI, and the authentication on the key is not:
-  that is checked on a phone.
-- **The emulator's Keystore is software, with no StrongBox.** With a PIN set on it, a key that takes biometrics or
-  the PIN for each use is made, so the passcode kind of key and both refusals can be tested in CI. The biometric
-  kind needs a fingerprint enrolled, which the emulator's controls allow and which is tried with that work.
-- **Nothing here is hardware.** That the key is in the Secure Enclave or in StrongBox on a real phone, and that an
-  enrolment invalidates it, are checked by hand on a phone, as the Ledger's own display is.
+- **[The phone checklist](KEYSTORE_PHONE_CHECKLIST.md) has not been run.** Nothing of the keystore has run on a
+  phone: that the hardware key is in the Secure Enclave or StrongBox, authentication on iOS at all, a real
+  fingerprint or face, and Android 9 and 10 are checked there, by hand.
+- **What iOS reports for a key an enrolment invalidated is not known.** Apple documents the invalidation and not the
+  error. The keystore reads a removed passcode with no prompt, and reads an enrolment only from the Enclave's refusal,
+  which it takes as `key_invalidated` when the error says what the key needed is gone and as a failed authentication
+  otherwise. The checklist's step 9 on an iPhone says which it is; if it is the second, the fix is to keep the
+  biometric set's state beside the key and compare it, which the platform exposes.
+- **The app's own line for Face ID** is in the app's configuration, in English, until `i18n` holds it.
 
 Done: wrap and unwrap are tested on both platforms; with a fixture's seed restored the module's signatures equal
 the core's, which the host tests hold to the signup vectors and the transaction fixtures byte for byte; a phone with
-no passcode is tested on both; and what the simulator and the emulator cannot show, the hardware itself and an
-enrolment, is on a checklist that is run on a phone.
+no passcode is tested on the emulator, and on iOS by the checklist, since the Simulator has no passcode to remove; and
+what the simulator and the emulator cannot show, the hardware itself and an enrolment on iOS, is on a checklist that
+is run on a phone.
 
 ### 5. End to end on a localnet
 

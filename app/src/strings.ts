@@ -1,13 +1,49 @@
 // The strings the app shows. Every string a member reads is a resource, never
 // text inside a component, so a language is a translation and not a build.
 // They are here until the `i18n` package is built and holds them for every
-// language; this screen is the scaffold's own and goes when signup arrives.
+// language; the scaffold's are its own and go when signup arrives.
 export const strings = {
   "scaffold.title": "Ark",
   "scaffold.keystore": "Keystore core",
   "scaffold.keystore.ok": "Built in, and it answers rightly",
   "scaffold.keystore.failed": "Built in, and it answers wrongly",
   "scaffold.keystore.unavailable": "Not in this build",
+  "scaffold.key": "Key on this phone",
+  "scaffold.key.none": "None",
+  "scaffold.key.invalidated": "The phone no longer opens it",
+  "scaffold.key.protection.biometric": "Opens with a fingerprint or face alone",
+  "scaffold.key.protection.passcode": "Opens with the passcode",
+  "scaffold.key.protection.none": "Opens with nothing: a Simulator's key",
+  "scaffold.key.hardware.secure_enclave": "Held by the Secure Enclave",
+  "scaffold.key.hardware.strongbox": "Held by StrongBox",
+  "scaffold.key.hardware.trusted_environment": "Held by the trusted environment",
+  "scaffold.key.hardware.software": "Held by no hardware: a development build's",
+  "scaffold.action.create": "Make a key",
+  "scaffold.action.sign": "Sign a test message",
+  "scaffold.action.remove": "Remove the key",
+  "scaffold.result": "Last result",
+  "scaffold.result.none": "Nothing yet",
+  "scaffold.result.created": "A key was made",
+  "scaffold.result.signed": "Signed, and the signature is the key's",
+  "scaffold.result.bad_signature": "Signed, and the signature is not the key's",
+  "scaffold.result.removed": "The key was removed",
+  "scaffold.result.no_key": "There is no key",
+  "scaffold.result.check_passed": "The device check passed",
+  "scaffold.result.check_failed": "The device check failed",
+  "keystore.prompt.create.title": "Protect your key",
+  "keystore.prompt.create.reason": "Confirm it is you, to keep your key on this phone",
+  "keystore.prompt.sign.title": "Sign",
+  "keystore.prompt.sign.reason": "Confirm it is you, to sign",
+  "keystore.prompt.cancel": "Cancel",
+  "keystore.error.no_passcode": "This phone has no passcode, and a key needs one",
+  "keystore.error.no_biometrics": "This phone needs a fingerprint or face enrolled to hold a key",
+  "keystore.error.no_hardware": "This phone cannot protect a key",
+  "keystore.error.exists": "This phone already holds a key",
+  "keystore.error.no_key": "This phone holds no key",
+  "keystore.error.authentication_failed": "It was not confirmed",
+  "keystore.error.locked_out": "Too many attempts. Try again later",
+  "keystore.error.key_invalidated": "This phone can no longer open your key",
+  "keystore.error.failed": "Something went wrong",
 } as const;
 
 export type StringKey = keyof typeof strings;

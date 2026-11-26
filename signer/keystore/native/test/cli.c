@@ -11,6 +11,7 @@
 //   cli sign <seed hex> <message hex>
 //   cli sign-with-key <key hex> <message hex>
 //   cli self-check
+//   cli generate                     a new seed and its public key
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +57,13 @@ int main(int argc, char **argv) {
   if (strcmp(command, "self-check") == 0) {
     printf("%d\n", ark_keystore_self_check());
     return 0;
+  }
+  if (strcmp(command, "generate") == 0) {
+    uint8_t seed[ARK_SEED_LENGTH];
+    if (!ark_keystore_generate(seed, out)) return 1;
+    for (size_t i = 0; i < sizeof seed; i++) printf("%02x", seed[i]);
+    printf(" ");
+    return print_hex(out, ARK_PUBLIC_KEY_LENGTH);
   }
   if (argc < 3) return 2;
   size_t a_length = unhex(argv[2], &a);

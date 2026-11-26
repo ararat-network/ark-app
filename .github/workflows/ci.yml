@@ -178,14 +178,21 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       - run: pnpm check
       - run: pnpm test
 
   # The two jobs below generate the native project from the app's config,
   # build it, install it on a simulator or an emulator, start it, and fail
-  # unless the device's log shows the signer's keystore passing its check
-  # there: Swift on iOS and Kotlin on Android, over the one C core. The native
-  # code they build is the signer's, so a change to either package runs them.
+  # unless the device's log shows the signer's keystore passing its checks
+  # there: its C core answering rightly, and a key made, signed with twice,
+  # and removed, through Swift on iOS and Kotlin on Android. On the emulator
+  # that is behind a PIN the check sets and types into the system's prompt.
+  # The native code they build is the signer's, so a change to either package
+  # runs them.
   app-ios:
     name: "app: builds and calls native code on iOS"
     needs: changes
@@ -202,6 +209,10 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       - name: Boot a simulator
         run: |
           xcodebuild -version
@@ -232,6 +243,10 @@ jobs:
           java-version: 17
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # The app takes the signer by path, and a package taken by path brings none of its own dependencies. The
+      # signer's are installed where its source looks for them: those it runs with, and not those it is developed with.
+      - run: pnpm install --frozen-lockfile --prod
+        working-directory: signer
       # The emulator needs hardware virtualisation, which the runner has once its device is opened to the runner's user.
       - name: Enable KVM
         run: |

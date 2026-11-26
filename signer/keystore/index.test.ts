@@ -15,7 +15,7 @@ test("the core's own answer decides, and only a plain true is a pass", () => {
 });
 
 test("a core that throws has failed", () => {
-  const throwing: KeystoreNative = {
+  const throwing: Pick<KeystoreNative, "selfCheck"> = {
     selfCheck: () => {
       throw new Error("the library did not load");
     },

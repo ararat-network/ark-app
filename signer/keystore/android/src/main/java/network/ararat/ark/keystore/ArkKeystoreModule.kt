@@ -1,31 +1,90 @@
 package network.ararat.ark.keystore
 
 import android.util.Log
+import androidx.fragment.app.FragmentActivity
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 
-// The keystore's Android side. Today it holds one call, the core's
-// self-check: the key's storage, and signing behind the member's
-// authentication, join it as they are built. No call here takes or returns a
-// seed or a key.
+// The keystore's Android side, as JavaScript calls it. The seed's storage and
+// its one use are in SeedStore.kt; this file turns its answers into what
+// crosses to JavaScript. No call here takes or returns a seed or a key.
 class ArkKeystoreModule : Module() {
+  private val store by lazy { SeedStore(appContext.reactContext ?: throw Exceptions.ReactContextLost()) }
+
   override fun definition() = ModuleDefinition {
     Name("ArkKeystore")
 
     // Whether the C core, as built into this app, derives the key and makes the signature a fixed seed must give.
     // The answer is written to the system log too, which is how a build is checked with nobody watching the screen.
     Function("selfCheck") {
-      val passed = selfCheckNative()
+      val passed = Core.selfCheckNative()
       Log.i("ArkKeystore", "ark-keystore self-check=" + (if (passed) 1 else 0))
       passed
     }
-  }
 
-  private external fun selfCheckNative(): Boolean
+    // The protection a key made now would have, or why none can be made.
+    AsyncFunction("availability") {
+      answering { store.availability() }
+    }
 
-  companion object {
-    init {
-      System.loadLibrary("arkkeystore")
+    // The key the phone holds, or null.
+    AsyncFunction("key") {
+      answering { store.held()?.let(::describe) }
+    }
+
+    // Makes the member's key. The Keystore's key asks for authentication to encrypt as it does to decrypt, so the
+    // member authenticates once here.
+    AsyncFunction("create") { prompt: KeystorePrompt, promise: Promise ->
+      store.create(activity(), prompt.text()) { made -> made.fold({ promise.resolve(describe(it)) }, { promise.reject(coded(it)) }) }
+    }
+
+    // A signature by the held key over SHA-256 of the message, after the member authenticates.
+    AsyncFunction("sign") { message: ByteArray, prompt: KeystorePrompt, promise: Promise ->
+      store.sign(activity(), message, prompt.text()) { signed -> signed.fold({ promise.resolve(it) }, { promise.reject(coded(it)) }) }
+    }
+
+    // Destroys the Keystore's key and the encrypted seed.
+    AsyncFunction("remove") {
+      answering { store.remove() }
     }
   }
+
+  // The system's prompt is shown over the app's own screen, so there has to be one.
+  private fun activity(): FragmentActivity =
+    appContext.currentActivity as? FragmentActivity ?: throw coded(KeystoreFailure("failed", "the app has no screen to show the prompt over"))
+}
+
+/** The text of the system's prompt, from JavaScript's string resources. */
+class KeystorePrompt : Record {
+  @Field val title: String = ""
+
+  @Field val reason: String = ""
+
+  @Field val cancel: String = ""
+
+  internal fun text() = PromptText(title, reason, cancel)
+}
+
+private fun describe(held: Held): Map<String, Any> = mapOf(
+  "publicKey" to held.publicKey,
+  "protection" to held.protection.wire,
+  "hardware" to held.hardware.wire,
+  "invalidated" to held.invalidated
+)
+
+/** A failure as the error JavaScript reads the kind of from its code. */
+private fun coded(thrown: Throwable): CodedException {
+  val failure = thrown as? KeystoreFailure ?: KeystoreFailure("failed", thrown.javaClass.simpleName + ": " + thrown.message, thrown)
+  return CodedException("ERR_ARK_KEYSTORE_" + failure.kind.uppercase(), failure.message, failure.cause)
+}
+
+private inline fun <T> answering(call: () -> T): T = try {
+  call()
+} catch (thrown: Throwable) {
+  throw coded(thrown)
 }
